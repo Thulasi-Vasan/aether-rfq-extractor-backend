@@ -46,6 +46,9 @@ TEXT_TABLE_SETTINGS = {
 }
 
 MAX_TITLE_DISTANCE = 36
+AGGREGATE_CELL_MIN_CHARS = 50
+AGGREGATE_CELL_MIN_LINES = 3
+DUPLICATE_LINE_COVERAGE = 0.8
 
 
 def normalize_text(value: str | None) -> str:
@@ -77,6 +80,28 @@ def bbox_to_tuple(value: object) -> BBox | None:
         return None
     x0, top, x1, bottom = value  # pdfplumber table cells are page-local top-left coordinates.
     return (round(float(x0), 3), round(float(top), 3), round(float(x1), 3), round(float(bottom), 3))
+
+
+def bbox_contains(outer: BBox, inner: BBox, *, tolerance: float = 2.0) -> bool:
+    return (
+        outer[0] <= inner[0] + tolerance
+        and outer[1] <= inner[1] + tolerance
+        and outer[2] >= inner[2] - tolerance
+        and outer[3] >= inner[3] - tolerance
+    )
+
+
+def text_tokens(text: str) -> list[str]:
+    return re.findall(r"[a-z0-9]+", text.lower())
+
+
+def numeric_tokens(text: str) -> list[str]:
+    return re.findall(r"\d[\d,.]*", text)
+
+
+def is_heading_like_line(text: str) -> bool:
+    lowered = text.lower().strip()
+    return lowered.endswith(":") or any(marker in lowered for marker in ("details", "remarks", "volume"))
 
 
 class PdfExtractionService:
@@ -147,6 +172,7 @@ class PdfExtractionService:
             with pdfplumber.open(path) as pdf:
                 for index, page in enumerate(pdf.pages, start=1):
                     page_tables = self._extract_page_tables(page, index)
+                    self._suppress_duplicate_aggregate_cells(page_tables, index)
                     tables.extend(page_tables)
                     self.store.write_debug_json(
                         document_id,
@@ -248,6 +274,154 @@ class PdfExtractionService:
             if candidate:
                 extracted.append(candidate)
         return extracted
+
+    def _suppress_duplicate_aggregate_cells(self, tables: list[ExtractedTable], page_number: int) -> None:
+        for table in tables:
+            child_tables = [
+                candidate
+                for candidate in tables
+                if candidate.table_id != table.table_id and bbox_contains(table.bbox, candidate.bbox)
+            ]
+            table_texts = self._collect_table_texts([table])
+
+            changed = False
+            for row in table.rows:
+                for cell in row.cells:
+                    if not self._is_aggregate_cell(cell.text):
+                        continue
+
+                    child_texts = self._collect_child_texts_for_cell(cell, child_tables)
+                    if child_texts:
+                        other_texts = child_texts
+                    elif self._should_compare_against_same_table(cell.text):
+                        other_texts = [
+                            text
+                            for text in table_texts
+                            if text != cell.text
+                        ]
+                    else:
+                        continue
+
+                    cleaned_text, removed_count = self._remove_duplicate_lines(cell.text, other_texts)
+                    if removed_count == 0 or cleaned_text == cell.text:
+                        continue
+                    if not self._is_meaningful_aggregate_reduction(cell.text, cleaned_text, removed_count):
+                        continue
+
+                    cell.text = cleaned_text
+                    cell.confidence = min(cell.confidence, 0.7)
+                    cell.warnings.append(
+                        ExtractionWarning(
+                            code="duplicate_aggregate_cell_suppressed",
+                            message="Duplicate aggregate cell text was suppressed in favor of detailed cells.",
+                            page_number=page_number,
+                            severity=WarningSeverity.warning,
+                            details={
+                                "table_id": table.table_id,
+                                "row": row.index,
+                                "column": cell.column,
+                                "removed_lines": removed_count,
+                            },
+                        )
+                    )
+                    changed = True
+
+            if changed:
+                table.warnings.append(
+                    ExtractionWarning(
+                        code="duplicate_aggregate_cell_suppressed",
+                        message="One or more aggregate cells were reduced because detailed cells already contain the same content.",
+                        page_number=page_number,
+                        severity=WarningSeverity.warning,
+                        details={"table_id": table.table_id},
+                    )
+                )
+                table.confidence = min(table.confidence, 0.82)
+
+    def _is_aggregate_cell(self, text: str) -> bool:
+        if len(text) >= AGGREGATE_CELL_MIN_CHARS:
+            return True
+        return len([line for line in text.splitlines() if line.strip()]) >= AGGREGATE_CELL_MIN_LINES
+
+    def _collect_table_texts(self, tables: list[ExtractedTable]) -> list[str]:
+        texts: list[str] = []
+        for table in tables:
+            if table.title:
+                texts.append(table.title)
+            for row in table.rows:
+                for cell in row.cells:
+                    if cell.text:
+                        texts.append(cell.text)
+        return texts
+
+    def _collect_child_texts_for_cell(self, cell: TableCell, child_tables: list[ExtractedTable]) -> list[str]:
+        if cell.bbox is None:
+            return []
+        contained_children = [
+            table
+            for table in child_tables
+            if bbox_contains(cell.bbox, table.bbox)
+        ]
+        return self._collect_table_texts(contained_children)
+
+    def _should_compare_against_same_table(self, text: str) -> bool:
+        lines = [line.strip() for line in text.splitlines() if line.strip()]
+        if not lines:
+            return False
+
+        if len(lines) >= AGGREGATE_CELL_MIN_LINES and is_heading_like_line(lines[0]):
+            return True
+
+        return (
+            len(lines) == 1
+            and len(text) >= AGGREGATE_CELL_MIN_CHARS
+            and ":" in text
+            and len(numeric_tokens(text)) >= 2
+        )
+
+    def _is_meaningful_aggregate_reduction(self, original_text: str, cleaned_text: str, removed_count: int) -> bool:
+        original_lines = [line for line in original_text.splitlines() if line.strip()]
+        if not original_lines:
+            return False
+
+        if not cleaned_text:
+            return removed_count == len(original_lines)
+
+        if len(original_lines) == 1:
+            return False
+
+        removed_ratio = removed_count / len(original_lines)
+        return removed_count >= 2 and removed_ratio >= 0.5
+
+    def _remove_duplicate_lines(self, text: str, other_texts: list[str]) -> tuple[str, int]:
+        other_tokens = set(text_tokens("\n".join(other_texts)))
+        if not other_tokens:
+            return text, 0
+
+        lines = [line.strip() for line in text.splitlines() if line.strip()]
+        if not lines:
+            return text, 0
+
+        kept_lines: list[str] = []
+        removed_count = 0
+        for index, line in enumerate(lines):
+            tokens = text_tokens(line)
+            if len(tokens) < 3:
+                kept_lines.append(line)
+                continue
+
+            covered = sum(1 for token in tokens if token in other_tokens)
+            coverage = covered / len(tokens)
+            if coverage >= DUPLICATE_LINE_COVERAGE:
+                if index == 0 and is_heading_like_line(line):
+                    kept_lines.append(line)
+                else:
+                    removed_count += 1
+                continue
+
+            kept_lines.append(line)
+
+        return "\n".join(kept_lines), removed_count
 
     def _normalize_table(
         self,

@@ -309,6 +309,62 @@ This document tracks extraction issues found by manual review of the reference P
 - Prefer separate logical tables for side-by-side sections instead of one wide combined text block.
 - Add warning code `nested_table_region_detected` when parent/child table overlap is found.
 
+---
+
+### 3. Stacked Operating Cost Blocks Should Be One Logical Table
+
+**PDF location**
+
+- Machining estimation page
+- `Operating cost for the given Volume: (Cost in Rs.)`
+- Left-side operating-cost section
+- Visually split into an upper block and a lower block with whitespace between them.
+
+**Expected behavior**
+
+- The upper and lower blocks should be treated as one logical operating-cost table.
+- The `Total Oerating Cost` / `Total Operating Cost` row belongs to the full operating-cost section, not only to the lower block.
+- Expected logical row sequence:
+  - `Cost of Cutting tools` -> `3,63,000`
+  - `Cost of Tool Holders` -> `22,00,000`
+  - `Cost of Probing Unit (if any)` -> empty
+  - `Cost of Fixtures` -> `23,00,000`
+  - `Cost of Gauges` -> `6,80,000`
+  - `Cost of Material Handling` -> `3,00,000`
+  - `Coolant oil cost` -> `41,382`
+  - `DM water cost for coolant, washing & Leak` -> `21,780`
+  - `Barcode label recurring cost` -> empty
+  - `Impregnation Basket cost` -> `0`
+  - `Total Oerating Cost` -> `59,06,162`
+
+**Current JSON behavior**
+
+- The upper operating-cost block is extracted as `p3_t2`.
+- The lower operating-cost block is extracted as `p3_t5`.
+- `Total Oerating Cost` is currently attached only to `p3_t5`.
+
+**Problem**
+
+- The frontend may render the operating-cost section as two separate tables even though it is one logical table.
+- The total row visually/logically summarizes both blocks, but its current table grouping makes it look tied only to the lower block.
+
+**Likely cause**
+
+- `pdfplumber` detects the upper and lower blocks as separate tables because of the vertical whitespace/gap between them.
+- The current normalizer does not merge vertically stacked table fragments.
+
+**Fix direction**
+
+- Add a logical table-continuation merge pass after duplicate aggregate suppression.
+- Merge vertically stacked tables when:
+  - they are on the same page
+  - their x positions and widths are closely aligned
+  - their column counts and column boundaries are compatible
+  - the vertical gap is within a configured threshold
+  - the lower table has continuation/total rows for the same section
+- For this page, `p3_t2` and `p3_t5` should likely become one logical operating-cost table.
+- Add warning/metadata code `stacked_table_merged` when this merge occurs.
+
 ## Page 4 Issues
 
 > Preliminary note: page 4 is the process planning page. The current JSON response exposes only one detected table, `p4_t1`, which is the RFQ/header metadata table. The page itself contains images/process visuals plus nearby text.
@@ -524,6 +580,7 @@ These page 1 issues are expected to repeat on other pages:
 - Overlapping text lines may collapse into unreadable strings.
 - Aggregate cells may duplicate data that is also available as detailed row/cell extractions.
 - Adjacent side-by-side tables may be merged into one large text block.
+- Vertically stacked fragments may need to be merged into one logical table.
 - Image-heavy regions may require OCR or a vision model to extract embedded markings/text.
 - Non-table vector text near images may need a page-elements response, not just table JSON.
 - Narrative/remarks regions may need section output instead of being forced into grid tables.
@@ -539,7 +596,8 @@ These page 1 issues are expected to repeat on other pages:
 7. Add optional page-level non-table text elements for image/process pages.
 8. Plan OCR or vision-model extraction for image-heavy regions.
 9. Add narrative/remarks section handling for large paragraph/list blocks.
-10. Add extraction warnings for:
+10. Add logical merge handling for vertically stacked table fragments.
+11. Add extraction warnings for:
    - `rotated_text_detected`
    - `span_inferred`
    - `large_aggregate_cell`
@@ -549,3 +607,4 @@ These page 1 issues are expected to repeat on other pages:
    - `nested_table_region_detected`
    - `image_region_not_ocr_processed`
    - `narrative_region_detected`
+   - `stacked_table_merged`
