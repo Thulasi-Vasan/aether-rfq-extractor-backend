@@ -12,8 +12,8 @@ export function MetadataPanel({ extraction }: MetadataPanelProps) {
     <aside className="side-panel metadata-panel">
       <div className="panel-heading">
         <div>
-          <p className="eyebrow">Extracted data</p>
-          <h2>{extraction?.part.final_part_no ?? "Waiting for files"}</h2>
+          <p className="eyebrow">Extracted information</p>
+          <h2>{extraction?.part.final_part_no ?? "No data loaded"}</h2>
         </div>
         <Info size={18} />
       </div>
@@ -24,6 +24,12 @@ export function MetadataPanel({ extraction }: MetadataPanelProps) {
         </div>
       ) : (
         <>
+          <div className="summary-grid">
+            <SummaryMetric label="LBH" value={formatLbh(extraction.cad.sorted_lbh_mm, extraction.cad.units)} />
+            <SummaryMetric label="Volume" value={formatVolume(extraction) ?? "Not found"} />
+            <SummaryMetric label="Mass Est." value={formatMass(extraction.mass.estimated_mass_kg) ?? "Not found"} />
+          </div>
+
           <DetailSection title="Part" icon={<Factory size={16} />}>
             <Metric label="Final Part No" value={extraction.part.final_part_no} source={sourceFor(extraction, "part")} />
             <Metric label="Revision" value={extraction.part.revision} />
@@ -35,7 +41,7 @@ export function MetadataPanel({ extraction }: MetadataPanelProps) {
           </DetailSection>
 
           <DetailSection title="Material" icon={<FileStack size={16} />}>
-            <Metric label="Spec" value={extraction.material.spec_number} source={sourceFor(extraction, "material.density_g_per_cm3")} />
+            <Metric label="Spec" value={extraction.material.spec_number} />
             <Metric label="Title" value={extraction.material.title} />
             <Metric
               label="Density"
@@ -44,6 +50,7 @@ export function MetadataPanel({ extraction }: MetadataPanelProps) {
                   ? null
                   : `${formatNumber(extraction.material.density_g_per_cm3, 4)} g/cm3`
               }
+              source={sourceFor(extraction, "material.density_g_per_cm3")}
             />
             <Metric label="Density Source" value={extraction.material.density_source} />
           </DetailSection>
@@ -137,6 +144,15 @@ function Metric({ label, value, source }: MetricProps) {
     <div className="metric-row" title={source?.note}>
       <span>{label}</span>
       <strong>{formatValue(value)}</strong>
+    </div>
+  );
+}
+
+function SummaryMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="summary-metric">
+      <span>{label}</span>
+      <strong>{value}</strong>
     </div>
   );
 }

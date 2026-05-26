@@ -1,4 +1,4 @@
-import { FileText, Loader2, Upload, Workflow } from "lucide-react";
+import { CheckCircle2, FileText, Loader2, Upload, Workflow } from "lucide-react";
 import type React from "react";
 import { formatFileSize } from "../lib/format";
 
@@ -27,8 +27,8 @@ export function UploadPanel({
     <aside className="side-panel upload-panel">
       <div className="panel-heading">
         <div>
-          <p className="eyebrow">Input set</p>
-          <h1>PDF + STEP extraction</h1>
+          <p className="eyebrow">Upload & files</p>
+          <h1>Source documents</h1>
         </div>
         <Upload size={18} />
       </div>
@@ -56,8 +56,19 @@ export function UploadPanel({
 
       {error ? <div className="error-box">{error}</div> : null}
 
-      <div className="hint-box">
-        Upload one drawing and the matching STEP file. The backend extracts the values, while the viewer renders the files for review.
+      <div className="workflow-box">
+        <div>
+          <strong>1</strong>
+          <span>Upload PDF drawing</span>
+        </div>
+        <div>
+          <strong>2</strong>
+          <span>Upload STEP model</span>
+        </div>
+        <div>
+          <strong>3</strong>
+          <span>Review extracted values</span>
+        </div>
       </div>
     </aside>
   );
@@ -83,14 +94,21 @@ function FilePicker({ icon, label, accept, file, onChange }: FilePickerProps) {
         accept={accept}
         onChange={(event) => onChange(event.target.files?.[0] ?? null)}
       />
-      <span className="file-value">
+      <span className={`file-value ${file ? "loaded" : ""}`}>
         {file ? (
           <>
+            <span className="file-chip">
+              <CheckCircle2 size={15} />
+              Loaded
+            </span>
             <strong>{file.name}</strong>
             <small>{formatFileSize(file.size)}</small>
           </>
         ) : (
-          "Choose file"
+          <>
+            <strong>Drop or browse</strong>
+            <small>Click to choose file</small>
+          </>
         )}
       </span>
     </label>

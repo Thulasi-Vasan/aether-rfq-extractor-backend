@@ -32,28 +32,44 @@ function App() {
   };
 
   return (
-    <div className="app-shell">
-      <UploadPanel
-        pdfFile={pdfFile}
-        stepFile={stepFile}
-        loading={loading}
-        error={error}
-        onPdfChange={setPdfFile}
-        onStepChange={setStepFile}
-        onSubmit={handleExtract}
-      />
-      <ViewerTabs
-        activeTab={activeTab}
-        onTabChange={setActiveTab}
-        pdfUrl={extraction?.viewer_files.pdf_url}
-        stepUrl={extraction?.viewer_files.step_url}
-        partLabel={
-          extraction
-            ? `${extraction.part.final_part_no ?? extraction.part.part_number ?? "Part"} · ${extraction.part.part_name ?? "Unnamed"}`
-            : null
-        }
-      />
-      <MetadataPanel extraction={extraction} />
+    <div className="app-frame">
+      <header className="top-bar">
+        <div className="brand-lockup">
+          <div className="brand-mark">A</div>
+          <div>
+            <strong>Aether Extract</strong>
+            <span>PDF + CAD review workspace</span>
+          </div>
+        </div>
+        <div className="run-state">
+          <span className={extraction ? "state-dot complete" : "state-dot"} />
+          {extraction ? "Extraction complete" : "Ready for upload"}
+        </div>
+      </header>
+
+      <div className="app-shell">
+        <UploadPanel
+          pdfFile={pdfFile}
+          stepFile={stepFile}
+          loading={loading}
+          error={error}
+          onPdfChange={setPdfFile}
+          onStepChange={setStepFile}
+          onSubmit={handleExtract}
+        />
+        <ViewerTabs
+          activeTab={activeTab}
+          onTabChange={setActiveTab}
+          pdfUrl={extraction?.viewer_files.pdf_url}
+          stepUrl={extraction?.viewer_files.step_url}
+          partLabel={
+            extraction
+              ? `${extraction.part.final_part_no ?? extraction.part.part_number ?? "Part"} · ${extraction.part.part_name ?? "Unnamed"}`
+              : null
+          }
+        />
+        <MetadataPanel extraction={extraction} />
+      </div>
     </div>
   );
 }
