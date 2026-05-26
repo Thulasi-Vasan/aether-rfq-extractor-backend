@@ -13,6 +13,11 @@ class InvalidPdfError(ExtractorError):
     code = "invalid_pdf"
 
 
+class InvalidBundleFileError(ExtractorError):
+    status_code = 400
+    code = "invalid_bundle_file"
+
+
 class EncryptedPdfError(ExtractorError):
     status_code = 409
     code = "encrypted_pdf"

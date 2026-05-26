@@ -11,11 +11,13 @@ from app.core.config import Settings, get_settings
 from app.models import (
     DocumentSummary,
     ErrorResponse,
+    PartBundleExtraction,
     ReferenceDocumentResponse,
     TablesResponse,
 )
 from app.services.errors import DocumentNotFoundError, ExtractorError
 from app.services.extractor import PdfExtractionService
+from app.services.part_bundle import PartBundleExtractionService
 from app.services.storage import DocumentStore, document_id_from_sha256, sha256_file
 
 
@@ -61,6 +63,13 @@ def get_extractor(
     store: DocumentStore = Depends(get_store),
 ) -> PdfExtractionService:
     return PdfExtractionService(settings, store)
+
+
+def get_part_bundle_extractor(
+    settings: Settings = Depends(get_settings),
+    store: DocumentStore = Depends(get_store),
+) -> PartBundleExtractionService:
+    return PartBundleExtractionService(settings, store)
 
 
 @app.get("/health")
@@ -192,3 +201,30 @@ async def extract_reference_document(
         cached=cached,
         warnings=extraction.warnings,
     )
+
+
+@app.post("/v1/part-bundles", response_model=PartBundleExtraction)
+async def upload_part_bundle(
+    files: list[UploadFile] = File(...),
+    force_reextract: bool = Query(default=False),
+    extractor: PartBundleExtractionService = Depends(get_part_bundle_extractor),
+) -> PartBundleExtraction:
+    temp_files = await extractor.save_uploads_to_temp(files)
+    try:
+        extraction, _ = await run_in_threadpool(
+            extractor.extract_uploads,
+            temp_files,
+            force_reextract=force_reextract,
+        )
+    finally:
+        for temp_file in temp_files:
+            temp_file.path.unlink(missing_ok=True)
+    return extraction
+
+
+@app.get("/v1/part-bundles/{bundle_id}", response_model=PartBundleExtraction)
+def get_part_bundle(
+    bundle_id: str,
+    store: DocumentStore = Depends(get_store),
+) -> PartBundleExtraction:
+    return store.load_part_bundle(bundle_id)

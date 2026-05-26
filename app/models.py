@@ -112,3 +112,90 @@ class ReferenceDocumentResponse(BaseModel):
     document_id: str | None = None
     extracted: bool = False
     message: str | None = None
+
+
+class BundleFile(BaseModel):
+    filename: str
+    sha256: str
+    file_type: Literal["pdf", "step"]
+    part_number: str | None = None
+    warnings: list[ExtractionWarning] = Field(default_factory=list)
+
+
+class PartSpecification(BaseModel):
+    spec_number: str
+    title: str | None = None
+    type: str | None = None
+    category: str | None = None
+    sub_category: str | None = None
+
+
+class DrawingAuthorization(BaseModel):
+    drafter: str | None = None
+    drafter_date: str | None = None
+    checker: str | None = None
+    checker_date: str | None = None
+    approver: str | None = None
+    approver_date: str | None = None
+
+
+class BoundingBoxMm(BaseModel):
+    x_min: float
+    y_min: float
+    z_min: float
+    x_max: float
+    y_max: float
+    z_max: float
+    length: float
+    width: float
+    height: float
+
+
+class CadGeometry(BaseModel):
+    source_file: str
+    step_product_number: str | None = None
+    units: str | None = None
+    bounding_box_mm: BoundingBoxMm | None = None
+    volume_mm3: float | None = None
+    surface_area_mm2: float | None = None
+    solid_count: int | None = None
+    mass_kg: float | None = None
+    warnings: list[ExtractionWarning] = Field(default_factory=list)
+
+
+class PartProfile(BaseModel):
+    part_number: str
+    revision: str | None = None
+    part_name: str | None = None
+    stage: str | None = None
+    drawing_category: str | None = None
+    state: str | None = None
+    company: str | None = None
+    classification: str | None = None
+    document_generated: str | None = None
+    authorization: DrawingAuthorization | None = None
+    specifications: list[PartSpecification] = Field(default_factory=list)
+    cad_geometry: CadGeometry | None = None
+    source_files: list[str] = Field(default_factory=list)
+    warnings: list[ExtractionWarning] = Field(default_factory=list)
+
+
+class BomRelationship(BaseModel):
+    parent_part_number: str
+    parent_stage: str | None = None
+    child_part_number: str
+    child_stage: str | None = None
+    child_name: str | None = None
+    quantity: int | float | str | None = None
+    unit_of_measure: str | None = None
+    method_of_use: str | None = None
+    source_file: str
+    warnings: list[ExtractionWarning] = Field(default_factory=list)
+
+
+class PartBundleExtraction(BaseModel):
+    bundle_id: str
+    files: list[BundleFile]
+    parts: list[PartProfile]
+    relationships: list[BomRelationship]
+    warnings: list[ExtractionWarning] = Field(default_factory=list)

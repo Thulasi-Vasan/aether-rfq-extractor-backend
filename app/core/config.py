@@ -19,6 +19,7 @@ class Settings(BaseSettings):
         validation_alias="AETHER_ENABLE_DEBUG_ARTIFACTS",
     )
     max_upload_bytes: int = Field(default=50 * 1024 * 1024, validation_alias="AETHER_MAX_UPLOAD_BYTES")
+    occ_python_path: Path | None = Field(default=None, validation_alias="AETHER_OCC_PYTHON")
 
     @property
     def uploads_dir(self) -> Path:
@@ -31,6 +32,10 @@ class Settings(BaseSettings):
     @property
     def debug_dir(self) -> Path:
         return self.data_dir / "debug"
+
+    @property
+    def part_bundles_dir(self) -> Path:
+        return self.data_dir / "part_bundles"
 
 
 @lru_cache
