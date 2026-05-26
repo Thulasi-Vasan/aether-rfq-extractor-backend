@@ -199,3 +199,79 @@ class PartBundleExtraction(BaseModel):
     parts: list[PartProfile]
     relationships: list[BomRelationship]
     warnings: list[ExtractionWarning] = Field(default_factory=list)
+
+
+class BasicSourceNote(BaseModel):
+    field: str
+    source_file: str
+    source_type: Literal["pdf", "step", "derived", "internal_mapping"]
+    note: str
+
+
+class BasicPartDetails(BaseModel):
+    final_part_no: str | None = None
+    part_number: str | None = None
+    revision: str | None = None
+    part_name: str | None = None
+    stage: str | None = None
+    drawing_category: str | None = None
+    state: str | None = None
+    project_name: str | None = None
+    company: str | None = None
+
+
+class BasicMaterialDetails(BaseModel):
+    spec_number: str | None = None
+    title: str | None = None
+    density_g_per_cm3: float | None = None
+    density_source: str | None = None
+
+
+class BasicBomChild(BaseModel):
+    part_number: str
+    name: str | None = None
+    quantity: int | float | str | None = None
+    unit_of_measure: str | None = None
+    method_of_use: str | None = None
+
+
+class BasicBomDetails(BaseModel):
+    child_part_count: int = 0
+    children: list[BasicBomChild] = Field(default_factory=list)
+
+
+class BasicCadDetails(BaseModel):
+    step_product_number: str | None = None
+    units: str | None = None
+    bounding_box_mm: BoundingBoxMm | None = None
+    sorted_lbh_mm: list[float] = Field(default_factory=list)
+    volume_mm3: float | None = None
+    volume_cm3: float | None = None
+    surface_area_mm2: float | None = None
+    solid_count: int | None = None
+
+
+class BasicMassDetails(BaseModel):
+    declared_mass_kg: float | None = None
+    estimated_mass_kg: float | None = None
+    implied_density_g_per_cm3: float | None = None
+    density_g_per_cm3: float | None = None
+    derivation: str | None = None
+    notes: list[str] = Field(default_factory=list)
+
+
+class BasicViewerFiles(BaseModel):
+    pdf_url: str
+    step_url: str
+
+
+class BasicExtraction(BaseModel):
+    extraction_id: str
+    part: BasicPartDetails
+    material: BasicMaterialDetails
+    bom: BasicBomDetails
+    cad: BasicCadDetails
+    mass: BasicMassDetails
+    viewer_files: BasicViewerFiles
+    sources: list[BasicSourceNote] = Field(default_factory=list)
+    warnings: list[ExtractionWarning] = Field(default_factory=list)

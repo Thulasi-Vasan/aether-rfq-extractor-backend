@@ -4,7 +4,7 @@ from pathlib import Path
 from shutil import copyfile
 
 from app.core.config import Settings
-from app.models import DocumentExtraction, PartBundleExtraction
+from app.models import BasicExtraction, DocumentExtraction, PartBundleExtraction
 from app.services.errors import DocumentNotFoundError
 
 
@@ -26,6 +26,7 @@ class DocumentStore:
         self.settings.uploads_dir.mkdir(parents=True, exist_ok=True)
         self.settings.extractions_dir.mkdir(parents=True, exist_ok=True)
         self.settings.part_bundles_dir.mkdir(parents=True, exist_ok=True)
+        self.settings.basic_extractions_dir.mkdir(parents=True, exist_ok=True)
         if self.settings.enable_debug_artifacts:
             self.settings.debug_dir.mkdir(parents=True, exist_ok=True)
 
@@ -44,11 +45,26 @@ class DocumentStore:
     def part_bundle_path(self, bundle_id: str) -> Path:
         return self.settings.part_bundles_dir / f"{bundle_id}.json"
 
+    def basic_extraction_dir(self, extraction_id: str) -> Path:
+        return self.settings.basic_extractions_dir / extraction_id
+
+    def basic_extraction_path(self, extraction_id: str) -> Path:
+        return self.basic_extraction_dir(extraction_id) / "extraction.json"
+
+    def basic_extraction_pdf_path(self, extraction_id: str) -> Path:
+        return self.basic_extraction_dir(extraction_id) / "source.pdf"
+
+    def basic_extraction_step_path(self, extraction_id: str) -> Path:
+        return self.basic_extraction_dir(extraction_id) / "source.stp"
+
     def has_extraction(self, document_id: str) -> bool:
         return self.extraction_path(document_id).exists()
 
     def has_part_bundle(self, bundle_id: str) -> bool:
         return self.part_bundle_path(bundle_id).exists()
+
+    def has_basic_extraction(self, extraction_id: str) -> bool:
+        return self.basic_extraction_path(extraction_id).exists()
 
     def save_upload(self, source_path: Path, document_id: str) -> Path:
         destination = self.upload_path(document_id)
@@ -84,6 +100,27 @@ class DocumentStore:
             raise DocumentNotFoundError(f"Part bundle extraction '{bundle_id}' was not found.")
         return PartBundleExtraction.model_validate_json(path.read_text(encoding="utf-8"))
 
+    def save_basic_extraction(
+        self,
+        extraction: BasicExtraction,
+        *,
+        pdf_path: Path,
+        step_path: Path,
+    ) -> Path:
+        extraction_dir = self.basic_extraction_dir(extraction.extraction_id)
+        extraction_dir.mkdir(parents=True, exist_ok=True)
+        copyfile(pdf_path, self.basic_extraction_pdf_path(extraction.extraction_id))
+        copyfile(step_path, self.basic_extraction_step_path(extraction.extraction_id))
+        path = self.basic_extraction_path(extraction.extraction_id)
+        path.write_text(extraction.model_dump_json(indent=2), encoding="utf-8")
+        return path
+
+    def load_basic_extraction(self, extraction_id: str) -> BasicExtraction:
+        path = self.basic_extraction_path(extraction_id)
+        if not path.exists():
+            raise DocumentNotFoundError(f"Basic extraction '{extraction_id}' was not found.")
+        return BasicExtraction.model_validate_json(path.read_text(encoding="utf-8"))
+
     def write_debug_json(self, document_id: str, name: str, payload: object) -> None:
         if not self.settings.enable_debug_artifacts:
             return
@@ -97,3 +134,17 @@ class DocumentStore:
         debug_dir = self.part_bundle_debug_path(bundle_id)
         debug_dir.mkdir(parents=True, exist_ok=True)
         (debug_dir / name).write_text(text, encoding="utf-8")
+
+    def write_basic_debug_text(self, extraction_id: str, name: str, text: str) -> None:
+        if not self.settings.enable_debug_artifacts:
+            return
+        debug_dir = self.settings.debug_dir / "basic_extractions" / extraction_id
+        debug_dir.mkdir(parents=True, exist_ok=True)
+        (debug_dir / name).write_text(text, encoding="utf-8")
+
+    def write_basic_debug_json(self, extraction_id: str, name: str, payload: object) -> None:
+        if not self.settings.enable_debug_artifacts:
+            return
+        debug_dir = self.settings.debug_dir / "basic_extractions" / extraction_id
+        debug_dir.mkdir(parents=True, exist_ok=True)
+        (debug_dir / name).write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")

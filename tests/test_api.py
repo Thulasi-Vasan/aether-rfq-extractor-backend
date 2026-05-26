@@ -86,3 +86,41 @@ def test_part_bundle_upload_extracts_parts_and_relationships() -> None:
     get_response = client.get(f"/v1/part-bundles/{payload['bundle_id']}")
     assert get_response.status_code == 200
     assert get_response.json()["bundle_id"] == payload["bundle_id"]
+
+
+def test_basic_extraction_upload_returns_compact_details_and_files() -> None:
+    pdf_path = Path("docs/reference-docs/6511292_Rev_4 (3).pdf")
+    step_path = Path("docs/reference-docs/6511292.stp")
+    if not pdf_path.exists() or not step_path.exists():
+        return
+
+    response = client.post(
+        "/v1/basic-extractions?force_reextract=true",
+        files={
+            "pdf": (pdf_path.name, pdf_path.read_bytes(), "application/pdf"),
+            "step": (step_path.name, step_path.read_bytes(), "application/octet-stream"),
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+
+    assert payload["extraction_id"]
+    assert payload["part"]["final_part_no"] == "6511292"
+    assert payload["material"]["spec_number"] == "E4-01-240"
+    assert payload["bom"]["child_part_count"] == 1
+    assert payload["cad"]["volume_cm3"] > 0
+    assert abs(payload["mass"]["estimated_mass_kg"] - 2.965004) < 0.0001
+    assert payload["viewer_files"]["pdf_url"].endswith("/pdf")
+    assert payload["viewer_files"]["step_url"].endswith("/step")
+
+    get_response = client.get(f"/v1/basic-extractions/{payload['extraction_id']}")
+    assert get_response.status_code == 200
+    assert get_response.json()["extraction_id"] == payload["extraction_id"]
+
+    pdf_response = client.get(payload["viewer_files"]["pdf_url"])
+    assert pdf_response.status_code == 200
+    assert pdf_response.headers["content-type"].startswith("application/pdf")
+
+    step_response = client.get(payload["viewer_files"]["step_url"])
+    assert step_response.status_code == 200
+    assert step_response.content

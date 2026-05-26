@@ -4,11 +4,12 @@ from fastapi import Depends, FastAPI, File, Query, UploadFile
 from fastapi.exception_handlers import http_exception_handler
 from fastapi.exceptions import HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from starlette.concurrency import run_in_threadpool
 
 from app.core.config import Settings, get_settings
 from app.models import (
+    BasicExtraction,
     DocumentSummary,
     ErrorResponse,
     PartBundleExtraction,
@@ -16,6 +17,7 @@ from app.models import (
     TablesResponse,
 )
 from app.services.errors import DocumentNotFoundError, ExtractorError
+from app.services.basic_extraction import BasicExtractionService
 from app.services.extractor import PdfExtractionService
 from app.services.part_bundle import PartBundleExtractionService
 from app.services.storage import DocumentStore, document_id_from_sha256, sha256_file
@@ -70,6 +72,13 @@ def get_part_bundle_extractor(
     store: DocumentStore = Depends(get_store),
 ) -> PartBundleExtractionService:
     return PartBundleExtractionService(settings, store)
+
+
+def get_basic_extractor(
+    settings: Settings = Depends(get_settings),
+    store: DocumentStore = Depends(get_store),
+) -> BasicExtractionService:
+    return BasicExtractionService(settings, store)
 
 
 @app.get("/health")
@@ -228,3 +237,51 @@ def get_part_bundle(
     store: DocumentStore = Depends(get_store),
 ) -> PartBundleExtraction:
     return store.load_part_bundle(bundle_id)
+
+
+@app.post("/v1/basic-extractions", response_model=BasicExtraction)
+async def upload_basic_extraction(
+    pdf: UploadFile = File(...),
+    step: UploadFile = File(...),
+    force_reextract: bool = Query(default=False),
+    extractor: BasicExtractionService = Depends(get_basic_extractor),
+) -> BasicExtraction:
+    temp_files = await extractor.save_uploads_to_temp(pdf, step)
+    try:
+        extraction, _ = await run_in_threadpool(
+            extractor.extract_uploads,
+            temp_files,
+            force_reextract=force_reextract,
+        )
+    finally:
+        temp_files.pdf_path.unlink(missing_ok=True)
+        temp_files.step_path.unlink(missing_ok=True)
+    return extraction
+
+
+@app.get("/v1/basic-extractions/{extraction_id}", response_model=BasicExtraction)
+def get_basic_extraction(
+    extraction_id: str,
+    store: DocumentStore = Depends(get_store),
+) -> BasicExtraction:
+    return store.load_basic_extraction(extraction_id)
+
+
+@app.get("/v1/basic-extractions/{extraction_id}/pdf")
+def get_basic_extraction_pdf(
+    extraction_id: str,
+    store: DocumentStore = Depends(get_store),
+) -> FileResponse:
+    store.load_basic_extraction(extraction_id)
+    path = store.basic_extraction_pdf_path(extraction_id)
+    return FileResponse(path, media_type="application/pdf", filename="source.pdf")
+
+
+@app.get("/v1/basic-extractions/{extraction_id}/step")
+def get_basic_extraction_step(
+    extraction_id: str,
+    store: DocumentStore = Depends(get_store),
+) -> FileResponse:
+    store.load_basic_extraction(extraction_id)
+    path = store.basic_extraction_step_path(extraction_id)
+    return FileResponse(path, media_type="application/octet-stream", filename="source.stp")

@@ -37,6 +37,10 @@ class Settings(BaseSettings):
     def part_bundles_dir(self) -> Path:
         return self.data_dir / "part_bundles"
 
+    @property
+    def basic_extractions_dir(self) -> Path:
+        return self.data_dir / "basic_extractions"
+
 
 @lru_cache
 def get_settings() -> Settings:
