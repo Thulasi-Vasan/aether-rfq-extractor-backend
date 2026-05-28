@@ -354,7 +354,7 @@ class BasicExtractionService:
                 field="cad",
                 source_file=files.step_filename,
                 source_type="step",
-                note="CAD geometry was computed from the uploaded STEP file using OCC/OpenCascade.",
+                note="CAD geometry was computed from the uploaded STEP file.",
             )
         ]
         if profile:

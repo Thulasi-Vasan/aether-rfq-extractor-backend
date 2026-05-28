@@ -36,8 +36,6 @@ export function MetadataPanel({ extraction }: MetadataPanelProps) {
             <Metric label="Part Name" value={extraction.part.part_name} />
             <Metric label="Stage" value={extraction.part.stage} />
             <Metric label="State" value={extraction.part.state} />
-            <Metric label="Project Name" value={extraction.part.project_name} />
-            <Metric label="Company" value={extraction.part.company} />
           </DetailSection>
 
           <DetailSection title="Material" icon={<FileStack size={16} />}>
@@ -141,11 +139,51 @@ interface MetricProps {
 
 function Metric({ label, value, source }: MetricProps) {
   return (
-    <div className="metric-row" title={source?.note}>
+    <div className="metric-row">
       <span>{label}</span>
-      <strong>{formatValue(value)}</strong>
+      <strong>
+        {formatValue(value)}
+        {source ? <SourceBadge source={source} /> : null}
+      </strong>
     </div>
   );
+}
+
+function SourceBadge({ source }: { source: BasicSourceNote }) {
+  return (
+    <span className={`source-badge source-${source.source_type}`} tabIndex={0}>
+      ?
+      <span className="source-tooltip" role="tooltip">
+        <span>
+          <b>Source</b>
+          {sourceLabel(source.source_type)}
+        </span>
+        <span>
+          <b>File</b>
+          {source.source_file}
+        </span>
+        <span>
+          <b>Note</b>
+          {source.note}
+        </span>
+      </span>
+    </span>
+  );
+}
+
+function sourceLabel(sourceType: BasicSourceNote["source_type"]): string {
+  switch (sourceType) {
+    case "pdf":
+      return "PDF";
+    case "step":
+      return "STEP";
+    case "derived":
+      return "Derived";
+    case "internal_mapping":
+      return "Mapping";
+    default:
+      return sourceType;
+  }
 }
 
 function SummaryMetric({ label, value }: { label: string; value: string }) {
