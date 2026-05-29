@@ -4,18 +4,20 @@ from fastapi import Depends, FastAPI, File, Query, UploadFile
 from fastapi.exception_handlers import http_exception_handler
 from fastapi.exceptions import HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from starlette.concurrency import run_in_threadpool
 
 from app.core.config import Settings, get_settings
 from app.models import (
     DocumentSummary,
+    ExcelFillResponse,
     ErrorResponse,
     ReferenceDocumentResponse,
     TablesResponse,
 )
 from app.services.errors import DocumentNotFoundError, ExtractorError
 from app.services.extractor import PdfExtractionService
+from app.services.meridian_excel import MeridianExcelFillService
 from app.services.storage import DocumentStore, document_id_from_sha256, sha256_file
 
 
@@ -61,6 +63,13 @@ def get_extractor(
     store: DocumentStore = Depends(get_store),
 ) -> PdfExtractionService:
     return PdfExtractionService(settings, store)
+
+
+def get_meridian_excel_fill_service(
+    settings: Settings = Depends(get_settings),
+    store: DocumentStore = Depends(get_store),
+) -> MeridianExcelFillService:
+    return MeridianExcelFillService(settings, store)
 
 
 @app.get("/health")
@@ -191,4 +200,37 @@ async def extract_reference_document(
         table_count=len(extraction.tables),
         cached=cached,
         warnings=extraction.warnings,
+    )
+
+
+@app.post("/v1/documents/{document_id}/excel/input-sheet", response_model=ExcelFillResponse)
+async def fill_input_sheet_excel(
+    document_id: str,
+    template: UploadFile = File(...),
+    service: MeridianExcelFillService = Depends(get_meridian_excel_fill_service),
+) -> ExcelFillResponse:
+    temp_path = await service.save_template_to_temp(template)
+    try:
+        return await run_in_threadpool(
+            service.fill_input_sheet,
+            document_id,
+            temp_path,
+            template.filename or "template.xlsx",
+        )
+    finally:
+        temp_path.unlink(missing_ok=True)
+
+
+@app.get("/v1/excel/jobs/{job_id}/download")
+def download_filled_excel(
+    job_id: str,
+    store: DocumentStore = Depends(get_store),
+) -> FileResponse:
+    path = store.excel_output_path(job_id)
+    if not path.exists():
+        raise DocumentNotFoundError(f"Excel output job '{job_id}' was not found.")
+    return FileResponse(
+        path,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        filename="filled.xlsx",
     )

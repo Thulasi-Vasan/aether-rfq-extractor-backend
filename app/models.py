@@ -112,3 +112,54 @@ class ReferenceDocumentResponse(BaseModel):
     document_id: str | None = None
     extracted: bool = False
     message: str | None = None
+
+
+class FieldSource(BaseModel):
+    page_number: int | None = None
+    table_id: str | None = None
+    row: int | None = None
+    column: int | None = None
+    text: str | None = None
+
+
+class NormalizedField(BaseModel):
+    value: Any
+    source: FieldSource | None = None
+    confidence: float = 1.0
+
+
+class ExcelWrittenCell(BaseModel):
+    field: str
+    cell: str
+    value: Any
+    status: Literal["written", "skipped"]
+    source: FieldSource | None = None
+    message: str | None = None
+
+
+class ExcelValidatedField(BaseModel):
+    field: str
+    cell: str | None = None
+    calculated_value: Any
+    extracted_value: Any | None = None
+    status: Literal["validated", "calculated", "mismatch", "missing_inputs"]
+    message: str | None = None
+
+
+class ExcelFillReport(BaseModel):
+    job_id: str
+    document_id: str
+    template_filename: str
+    output_filename: str
+    sheet_name: str = "Input Sheet"
+    written_cells: list[ExcelWrittenCell] = Field(default_factory=list)
+    validated_fields: list[ExcelValidatedField] = Field(default_factory=list)
+    warnings: list[ExtractionWarning] = Field(default_factory=list)
+
+
+class ExcelFillResponse(BaseModel):
+    job_id: str
+    document_id: str
+    output_filename: str
+    download_url: str
+    report: ExcelFillReport

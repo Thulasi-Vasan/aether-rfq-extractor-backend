@@ -13,6 +13,11 @@ class InvalidPdfError(ExtractorError):
     code = "invalid_pdf"
 
 
+class InvalidExcelTemplateError(ExtractorError):
+    status_code = 400
+    code = "invalid_excel_template"
+
+
 class EncryptedPdfError(ExtractorError):
     status_code = 409
     code = "encrypted_pdf"

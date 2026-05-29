@@ -6,7 +6,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore", populate_by_name=True)
 
     data_dir: Path = Field(default=Path("data"), validation_alias="AETHER_DATA_DIR")
     reference_pdf_path: Path = Field(
@@ -31,6 +31,10 @@ class Settings(BaseSettings):
     @property
     def debug_dir(self) -> Path:
         return self.data_dir / "debug"
+
+    @property
+    def excel_outputs_dir(self) -> Path:
+        return self.data_dir / "excel_outputs"
 
 
 @lru_cache
