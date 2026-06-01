@@ -29,6 +29,7 @@ uv run pytest
 - `GET /v1/documents/{document_id}`
 - `GET /v1/documents/{document_id}/tables`
 - `GET /v1/documents/{document_id}/pages/{page_number}/tables`
+- `GET /v1/documents/{document_id}/meridian`
 - `GET /v1/reference-document`
 - `POST /v1/reference-document/extract`
 
