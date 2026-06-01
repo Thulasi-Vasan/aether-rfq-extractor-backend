@@ -141,8 +141,14 @@ def reverse_vertical_label(value: str | None) -> str:
 
 
 class MeridianStructuredExtractionService:
-    def build(self, extraction: DocumentExtraction, pdf_path: Path | None = None) -> MeridianExtractionResponse:
-        raw_text_by_page = self._extract_raw_text(pdf_path) if pdf_path and pdf_path.exists() else {}
+    def build(
+        self,
+        extraction: DocumentExtraction,
+        pdf_path: Path | None = None,
+        *,
+        include_raw: bool = False,
+    ) -> MeridianExtractionResponse:
+        raw_text_by_page = self._extract_raw_text(pdf_path) if include_raw and pdf_path and pdf_path.exists() else {}
         pages = [
             self._page_1(extraction, raw_text_by_page.get(1, "")),
             self._page_2(extraction, raw_text_by_page.get(2, "")),
@@ -152,14 +158,32 @@ class MeridianStructuredExtractionService:
             self._page_6(extraction, raw_text_by_page.get(6, "")),
             self._page_7(extraction, raw_text_by_page.get(7, "")),
         ]
+        pages = [self._apply_raw_policy(page, include_raw=include_raw) for page in pages]
         warnings = [warning for page in pages for warning in page.warnings]
         return MeridianExtractionResponse(
             document_id=extraction.document_id,
             filename=extraction.filename,
             page_count=extraction.page_count,
             pages=pages,
-            raw_tables=extraction.tables,
+            raw_tables=extraction.tables if include_raw else [],
             warnings=[*extraction.warnings, *warnings],
+        )
+
+    def _apply_raw_policy(self, page: MeridianStructuredPage, *, include_raw: bool) -> MeridianStructuredPage:
+        source_refs = [
+            {
+                "table_id": table.table_id,
+                "page_number": table.page_number,
+                "title": table.title,
+            }
+            for table in page.raw_tables
+        ]
+        return page.model_copy(
+            update={
+                "source_refs": source_refs,
+                "raw_tables": page.raw_tables if include_raw else [],
+                "raw_text": page.raw_text if include_raw else "",
+            }
         )
 
     def _extract_raw_text(self, pdf_path: Path) -> dict[int, str]:

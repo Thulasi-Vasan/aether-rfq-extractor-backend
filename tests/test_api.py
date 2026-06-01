@@ -62,3 +62,12 @@ def test_reference_pdf_extracts_when_present() -> None:
         "rfq_remarks",
         "packing_estimation",
     ]
+    assert meridian_payload["raw_tables"] == []
+    assert meridian_payload["pages"][0]["raw_tables"] == []
+    assert meridian_payload["pages"][0]["source_refs"][0]["table_id"] == "p1_t1"
+
+    raw_meridian_response = client.get(f"/v1/documents/{payload['document_id']}/meridian?include_raw=true")
+    assert raw_meridian_response.status_code == 200
+    raw_meridian_payload = raw_meridian_response.json()
+    assert len(raw_meridian_payload["raw_tables"]) >= 1
+    assert len(raw_meridian_payload["pages"][0]["raw_tables"]) == 1

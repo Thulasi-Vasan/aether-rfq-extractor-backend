@@ -66,6 +66,24 @@ def test_meridian_normalizer_builds_all_page_types() -> None:
         "packing_estimation",
     ]
     assert len(response.pages) == 7
+    assert response.raw_tables == []
+    assert all(page.raw_tables == [] for page in response.pages)
+    assert all(page.raw_text == "" for page in response.pages)
+    assert response.pages[0].model_extra["source_refs"] == [
+        {
+            "table_id": "p1_t1",
+            "page_number": 1,
+            "title": "SCL-PED RFQ ESTIMATION FOR GRAVITY DIE CASTING (GDC)",
+        }
+    ]
+
+
+def test_meridian_normalizer_can_include_raw_tables() -> None:
+    response = MeridianStructuredExtractionService().build(load_sample_extraction(), include_raw=True)
+
+    assert len(response.raw_tables) == 12
+    assert len(response.pages[0].raw_tables) == 1
+    assert response.pages[0].raw_tables[0].table_id == "p1_t1"
 
 
 def test_page_7_packing_arrangements_and_free_text_rows() -> None:

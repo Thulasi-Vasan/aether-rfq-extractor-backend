@@ -157,11 +157,12 @@ def get_page_tables(
 @app.get("/v1/documents/{document_id}/meridian", response_model=MeridianExtractionResponse)
 def get_meridian_extraction(
     document_id: str,
+    include_raw: bool = Query(default=False),
     store: DocumentStore = Depends(get_store),
 ) -> MeridianExtractionResponse:
     extraction = store.load_extraction(document_id)
     pdf_path = store.upload_path(document_id)
-    return MeridianStructuredExtractionService().build(extraction, pdf_path=pdf_path)
+    return MeridianStructuredExtractionService().build(extraction, pdf_path=pdf_path, include_raw=include_raw)
 
 
 @app.get("/v1/reference-document", response_model=ReferenceDocumentResponse)
