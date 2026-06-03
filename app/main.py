@@ -1,10 +1,11 @@
+import io
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, File, Query, UploadFile
 from fastapi.exception_handlers import http_exception_handler
 from fastapi.exceptions import HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from starlette.concurrency import run_in_threadpool
 
 from app.core.config import Settings, get_settings
@@ -19,6 +20,7 @@ from app.services.errors import DocumentNotFoundError, ExtractorError
 from app.services.extractor import PdfExtractionService
 from app.services.meridian import MeridianStructuredExtractionService
 from app.services.storage import DocumentStore, document_id_from_sha256, sha256_file
+from app.services.excel_populator import ExcelExportService
 
 
 def create_app() -> FastAPI:
@@ -205,3 +207,28 @@ async def extract_reference_document(
         cached=cached,
         warnings=extraction.warnings,
     )
+
+
+def get_excel_exporter(settings: Settings = Depends(get_settings)) -> ExcelExportService:
+    return ExcelExportService(settings)
+
+
+@app.get("/v1/documents/{document_id}/export-excel", response_class=StreamingResponse)
+def export_excel(
+    document_id: str,
+    store: DocumentStore = Depends(get_store),
+    exporter: ExcelExportService = Depends(get_excel_exporter),
+) -> StreamingResponse:
+    extraction = store.load_extraction(document_id)
+    pdf_path = store.upload_path(document_id)
+    structured_data = MeridianStructuredExtractionService().build(extraction, pdf_path=pdf_path)
+    excel_bytes = exporter.populate(structured_data)
+    
+    filename = f"{extraction.filename.rsplit('.', 1)[0]}_exported.xlsx" if extraction.filename else "exported.xlsx"
+    
+    return StreamingResponse(
+        io.BytesIO(excel_bytes),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+    )
+
