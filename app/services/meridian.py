@@ -18,6 +18,7 @@ from app.models import (
 
 
 EXCEL_DATE_BASE = date(1899, 12, 30)
+FORMULA_ERROR_VALUES = {"#REF!", "#VALUE!", "#DIV/0!", "#N/A", "#NAME?", "#NULL!", "#NUM!"}
 
 
 def parse_number(value: str | None) -> int | float | None:
@@ -131,6 +132,61 @@ def row_value(rows: list[list[str]], label: str, value_column: int = 1) -> str:
     return ""
 
 
+def row_text(row: list[str]) -> str:
+    return " ".join(one_line(value) for value in row if one_line(value))
+
+
+def row_has_text(row: list[str], text: str) -> bool:
+    return text.lower() in row_text(row).lower()
+
+
+def find_row_index(rows: list[list[str]], predicate, start: int = 0) -> int | None:
+    for index in range(start, len(rows)):
+        if predicate(rows[index]):
+            return index
+    return None
+
+
+def row_by_label_prefix(rows: list[list[str]], prefix: str, start: int = 0) -> list[str]:
+    prefix_lower = prefix.lower()
+    for row in rows[start:]:
+        if row and one_line(row[0]).lower().startswith(prefix_lower):
+            return row
+    return []
+
+
+def has_formula_error(value: str | None) -> bool:
+    return one_line(value).upper() in FORMULA_ERROR_VALUES
+
+
+def has_any_formula_error(row: list[str]) -> bool:
+    return any(has_formula_error(value) for value in row)
+
+
+def clean_section_title(value: str | None) -> str:
+    text = one_line(value)
+    text = re.sub(r"\s+Capex\s+Operating.*$", "", text, flags=re.IGNORECASE)
+    return text.strip()
+
+
+def parse_numbered_notes(value: str | None) -> list[dict[str, Any]]:
+    text = one_line(value)
+    if not text:
+        return []
+    if ":" in text and text.lower().startswith(("assumptions", "notes")):
+        text = text.split(":", 1)[1].strip()
+
+    matches = list(re.finditer(r"(?:^|\s)\(?(\d+)\)\s*", text))
+    notes: list[dict[str, Any]] = []
+    for index, match in enumerate(matches):
+        start = match.end()
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
+        note_text = text[start:end].strip()
+        if note_text:
+            notes.append({"note_no": int(match.group(1)), "text": note_text})
+    return notes
+
+
 def reverse_vertical_label(value: str | None) -> str:
     text = clean_text(value)
     if not text:
@@ -225,16 +281,25 @@ class MeridianStructuredExtractionService:
         }
 
         output_machine_details = []
-        for row in rows[9:20]:
-            operation = one_line(row[0] if row else "")
-            if not operation or operation.startswith("Output/"):
+        for index in range(9, min(20, len(rows))):
+            row = rows[index]
+            raw_operation = clean_text(row[0] if row else "")
+            value_row = row
+            if raw_operation.startswith("Output/"):
+                parts = [part.strip() for part in raw_operation.splitlines() if part.strip()]
+                operation = parts[-1] if len(parts) > 1 else ""
+                if index + 1 < len(rows):
+                    value_row = rows[index + 1]
+            else:
+                operation = one_line(raw_operation)
+            if not operation:
                 continue
             output_machine_details.append(
                 {
                     "operation": operation,
-                    "no_of_cavities_or_loading": parse_int(row[3] if len(row) > 3 else ""),
-                    "cycle_time_min": parse_float(row[4] if len(row) > 4 else ""),
-                    "output_per_hr": parse_int(row[5] if len(row) > 5 else ""),
+                    "no_of_cavities_or_loading": parse_int(value_row[3] if len(value_row) > 3 else ""),
+                    "cycle_time_min": parse_float(value_row[4] if len(value_row) > 4 else ""),
+                    "output_per_hr": parse_int(value_row[5] if len(value_row) > 5 else ""),
                 }
             )
 
@@ -279,11 +344,14 @@ class MeridianStructuredExtractionService:
             output_machine_details=output_machine_details,
             casting_cell_details=casting_cell_details,
             capital_investments=capital_investments,
+            capital_investments_summary={
+                "total_investment_rs_lac": self._page_1_capital_total(rows),
+            },
             operating_costs=operating_costs,
             die_details=die_details,
             testing_cost_details=testing_cost_details,
             power_rating_details=power_rating_details,
-            assumptions_notes=[],
+            assumptions_notes=self._page_1_assumptions(rows),
             approval=approval,
             raw_tables=self._page_tables(extraction, 1),
             raw_text=raw_text,
@@ -295,12 +363,15 @@ class MeridianStructuredExtractionService:
         current: dict[str, Any] | None = None
         for row in rows[21:54]:
             label = reverse_vertical_label(row[0] if row else "")
-            if label:
+            description = one_line(row[1] if len(row) > 1 else "")
+            if description == "Band saw machine":
+                current = {"category": "Post casting", "items": []}
+                groups.append(current)
+            elif label:
                 current = {"category": label, "items": []}
                 groups.append(current)
             if current is None:
                 continue
-            description = one_line(row[1] if len(row) > 1 else "")
             if not description or description.lower().startswith("total investment"):
                 continue
             current["items"].append(
@@ -313,6 +384,16 @@ class MeridianStructuredExtractionService:
                 }
             )
         return groups
+
+    def _page_1_capital_total(self, rows: list[list[str]]) -> float | None:
+        for row in rows:
+            if len(row) > 5 and one_line(row[1]).lower().startswith("total investment"):
+                return parse_float(row[5])
+        return None
+
+    def _page_1_assumptions(self, rows: list[list[str]]) -> list[dict[str, Any]]:
+        assumption_row = next((row for row in rows if row and one_line(row[0]).lower().startswith("assumptions/ notes")), [])
+        return parse_numbered_notes(assumption_row[0] if assumption_row else "")
 
     def _page_1_operating(self, rows: list[list[str]]) -> list[dict[str, Any]]:
         groups: list[dict[str, Any]] = []
@@ -348,19 +429,20 @@ class MeridianStructuredExtractionService:
                     }
                 )
         return {
-            "no_of_dies": parse_int(cell(rows, 53, 3)),
-            "die_life_shots": parse_int(cell(rows, 54, 5)),
-            "core_box_life_shots": parse_int(cell(rows, 55, 5)),
-            "capital_cost_rs_lac": None,
-            "items": [
+            "capital_items": [
                 {
                     "description": one_line(cell(rows, 53, 1)),
-                    "units": parse_int(cell(rows, 53, 3)),
+                    "no_of_dies": parse_int(cell(rows, 53, 3)),
                     "amount_per_cell_rs_lac": parse_float(cell(rows, 53, 4)),
                     "total_cost_rs_lac": parse_float(cell(rows, 53, 5)),
                 }
             ],
+            "life": {
+                "die_life_shots": parse_int(cell(rows, 54, 5)),
+                "core_box_life_shots": parse_int(cell(rows, 55, 5)),
+            },
             "operating_items": die_operating,
+            "operating_total_rs_lac": parse_float(cell(rows, 57, 10)),
         }
 
     def _page_1_testing(self, rows: list[list[str]]) -> dict[str, Any]:
@@ -430,31 +512,10 @@ class MeridianStructuredExtractionService:
         operating_bottom = matrix(self._table(extraction, "p3_t5"))
         page_warnings: list[ExtractionWarning] = []
 
-        operations = []
-        for row in rows[9:21]:
-            op_raw = one_line(row[0] if row else "")
-            if not op_raw:
-                continue
-            if op_raw == "#REF!":
-                page_warnings.append(warning("invalid_operation_row", "Operation row '#REF!' was present in the source table and skipped from normalized machining operations.", 3))
-                continue
-            operation_no = parse_int(op_raw)
-            description = one_line(row[1] if len(row) > 1 else "")
-            if operation_no is None or not description:
-                if op_raw == "110":
-                    page_warnings.append(warning("blank_operation_row", "Operation 110 has no operation details and only amount 0.", 3))
-                continue
-            operations.append(
-                {
-                    "operation_no": operation_no,
-                    "description": description,
-                    "cycle_time_min": parse_float(row[3] if len(row) > 3 else ""),
-                    "machines_per_cell": parse_int(row[4] if len(row) > 4 else ""),
-                    "machine_cost_rs": parse_int(row[5] if len(row) > 5 else ""),
-                    "no_of_cells": parse_int(row[6] if len(row) > 6 else ""),
-                    "amount_rs": parse_int(row[7] if len(row) > 7 else ""),
-                }
-            )
+        operations = self._page_3_operations(rows, page_warnings)
+        capital_row_index = find_row_index(rows, lambda row: row_has_text(row, "Cell Cycle Time:"))
+        if capital_row_index is None:
+            capital_row_index = 22
 
         operating_items = [
             {"description": one_line(row[0]), "amount_rs": parse_int(row[1] if len(row) > 1 else "")}
@@ -487,8 +548,8 @@ class MeridianStructuredExtractionService:
             },
             machining_operations=operations,
             capital_summary={
-                "cell_cycle_time_min": parse_float(cell(rows, 22, 3)),
-                "total_capital_expenditure_rs": parse_int(cell(rows, 22, 7)),
+                "cell_cycle_time_min": parse_float(cell(rows, capital_row_index, 3)),
+                "total_capital_expenditure_rs": parse_int(cell(rows, capital_row_index, 7)),
             },
             operating_costs=[
                 {
@@ -511,7 +572,7 @@ class MeridianStructuredExtractionService:
                 "setup_changeover_considered": parse_bool(row_value(resource_rows, "Setup changeover considered (Y/ N)")),
                 "no_of_variants_planned_per_cell": parse_int(row_value(resource_rows, "No of variants planned / cell")),
             },
-            assumptions_notes=[],
+            assumptions_notes=self._page_3_assumptions(rows),
             approval={
                 "prepared_by": "EA / KVG",
                 "approved_by": "JR",
@@ -525,6 +586,67 @@ class MeridianStructuredExtractionService:
             raw_text=raw_text,
             warnings=page_warnings,
         )
+
+    def _page_3_operations(self, rows: list[list[str]], page_warnings: list[ExtractionWarning]) -> list[dict[str, Any]]:
+        header_index = find_row_index(rows, lambda row: row and one_line(row[0]).lower().startswith("opn. no."))
+        start = (header_index + 1) if header_index is not None else 9
+        operations: list[dict[str, Any]] = []
+        for index in range(start, len(rows)):
+            row = rows[index]
+            if row_has_text(row, "Cell Cycle Time:") or row_has_text(row, "This estimation is valid") or row_has_text(row, "Operating cost"):
+                break
+            op_raw = one_line(row[0] if row else "")
+            description = one_line(row[1] if len(row) > 1 else "")
+            if not op_raw and not description and not row_text(row):
+                continue
+            if has_any_formula_error(row):
+                page_warnings.append(
+                    warning(
+                        "invalid_operation_row",
+                        "Formula error token was present in a machining operation row and the row was skipped.",
+                        3,
+                        {"table_id": "p3_t1", "row_index": index, "row_text": row_text(row)},
+                    )
+                )
+                continue
+            operation_no = parse_int(op_raw)
+            if operation_no is None:
+                if description or op_raw:
+                    page_warnings.append(
+                        warning(
+                            "invalid_operation_row",
+                            "Machining operation row could not be normalized because the operation number is missing or invalid.",
+                            3,
+                            {"table_id": "p3_t1", "row_index": index, "operation_raw": op_raw, "row_text": row_text(row)},
+                        )
+                    )
+                continue
+            if not description:
+                page_warnings.append(
+                    warning(
+                        "blank_operation_row",
+                        f"Operation {operation_no} has no operation details and was skipped.",
+                        3,
+                        {"table_id": "p3_t1", "row_index": index, "operation_no": operation_no, "row_text": row_text(row)},
+                    )
+                )
+                continue
+            operations.append(
+                {
+                    "operation_no": operation_no,
+                    "description": description,
+                    "cycle_time_min": parse_float(row[3] if len(row) > 3 else ""),
+                    "machines_per_cell": parse_int(row[4] if len(row) > 4 else ""),
+                    "machine_cost_rs": parse_int(row[5] if len(row) > 5 else ""),
+                    "no_of_cells": parse_int(row[6] if len(row) > 6 else ""),
+                    "amount_rs": parse_int(row[7] if len(row) > 7 else ""),
+                }
+            )
+        return operations
+
+    def _page_3_assumptions(self, rows: list[list[str]]) -> list[dict[str, Any]]:
+        assumptions_row = next((row for row in rows if row and one_line(row[0]).lower().startswith("assumptions/ notes")), [])
+        return parse_numbered_notes(assumptions_row[0] if assumptions_row else "")
 
     def _page_4(self, extraction: DocumentExtraction, raw_text: str) -> MeridianStructuredPage:
         rows = matrix(self._table(extraction, "p4_t1"))
@@ -550,28 +672,17 @@ class MeridianStructuredExtractionService:
             process_sequences=[
                 {
                     "sequence_label": "Machining process sequence",
-                    "sequence_code": "F",
-                    "steps": [
-                        self._process_step(1, "MACHINE 1", 1, "LATHE", "SETUP-1", ["Id forming profile forming"]),
-                        self._process_step(2, "MACHINE 3", 3, "LATHE", None, ["INLET OD FORMING"]),
-                        self._process_step(3, "MACHINE 3", 3, "LATHE", None, ["OUTLET OD FORMING"]),
-                        self._process_step(4, "MACHINE 4", 4, "LATHE", None, ["Drilling Ø6.2 - 1 Nos", "Drilling Ø1.65 - 1 Nos", "Neme plate drilling", "profile form milling", "Slot milling"]),
-                    ],
-                    "unassigned_operations": [
-                        {
-                            "text": "OUTLETTURNING",
-                            "nearest_step_index": 1,
-                            "assignment_status": "unassigned",
-                            "confidence": "low",
-                        }
-                    ],
+                    "sequence_code": None,
+                    "extraction_status": "vision_layout_deferred",
+                    "steps": [],
+                    "unassigned_operations": [],
+                    "deferred_reason": "Process sequence content is visual/layout-heavy and requires OCR or vision LLM extraction.",
                 }
             ],
             raw_tables=self._page_tables(extraction, 4),
             raw_text=raw_text,
             warnings=[
-                warning("process_sequence_not_table_extracted", "Page 4 process sequence is present as layout/text content and was not captured by the table extractor.", 4),
-                warning("ambiguous_operation_assignment", "Operation text 'OUTLETTURNING' could not be confidently assigned to a machine step.", 4),
+                warning("process_sequence_deferred", "Page 4 process sequence requires layout-aware OCR or vision LLM extraction and is deferred in this deterministic pass.", 4),
             ],
         )
 
@@ -592,6 +703,30 @@ class MeridianStructuredExtractionService:
 
     def _page_5(self, extraction: DocumentExtraction, raw_text: str) -> MeridianStructuredPage:
         rows = matrix(self._table(extraction, "p5_t1"))
+        page_warnings: list[ExtractionWarning] = []
+        lbh_raw = cell(rows, 5, 3)
+        lbh = parse_lbh(lbh_raw)
+        if one_line(lbh_raw) and any(lbh[dimension] is None for dimension in ("length", "breadth", "height")):
+            page_warnings.append(
+                warning(
+                    "suspicious_lbh_value",
+                    f"Page 5 has LBH (mm) value {one_line(lbh_raw)!r}, which does not match a length x breadth x height format.",
+                    5,
+                    {"value": one_line(lbh_raw)},
+                )
+            )
+        after_assembly_raw = cell(rows, 31, 3)
+        after_assembly_bool = parse_bool(after_assembly_raw)
+        if one_line(after_assembly_raw) and one_line(after_assembly_raw).lower() not in {"yes", "y", "no", "n", "true", "false"}:
+            page_warnings.append(
+                warning(
+                    "non_boolean_after_assembly_flag",
+                    f"After assembly machining involved field contains {one_line(after_assembly_raw)!r}; normalized as {after_assembly_bool}.",
+                    5,
+                    {"value": one_line(after_assembly_raw), "normalized": after_assembly_bool},
+                )
+            )
+
         return MeridianStructuredPage(
             page_number=5,
             page_type="assembly_estimation",
@@ -607,7 +742,7 @@ class MeridianStructuredExtractionService:
                 "description": cell(rows, 5, 1),
                 "alloy": cell(rows, 6, 1),
                 "machined_part_weight_kg": parse_float(cell(rows, 4, 3)),
-                "lbh_mm": parse_lbh(cell(rows, 5, 3)),
+                "lbh_mm": lbh,
                 "takt_time_min": parse_float(cell(rows, 6, 3)),
             },
             cycle_time_details={
@@ -629,7 +764,7 @@ class MeridianStructuredExtractionService:
             assembly_investments=self._page_5_assembly_investments(rows),
             assembly_resource_requirements={
                 "sealant_consumption_per_part_ml": parse_float(cell(rows, 25, 3)),
-                "sealant_type": "loc tite 648",
+                "sealant_type": self._page_5_sealant_type(rows),
                 "power_rating_kw_hr": parse_float(cell(rows, 26, 3)),
                 "feasible_to_use_machining_operator_for_assembly": parse_bool(cell(rows, 27, 3)),
                 "manpower_per_shift_per_cell": parse_float(cell(rows, 28, 3)),
@@ -645,47 +780,86 @@ class MeridianStructuredExtractionService:
                 "revision_no": "01",
                 "revision_date": "2014-10-29",
                 "classification": "Confidential",
+                "extraction_status": "fallback_defaults",
             },
             raw_tables=self._page_tables(extraction, 5),
             raw_text=raw_text,
-            warnings=[
-                warning("suspicious_lbh_value", "Page 5 has LBH (mm) value '3.8', which does not match the dimensional LBH format used on other pages.", 5),
-                warning("non_boolean_after_assembly_flag", "After assembly machining involved field contains '0.0'; normalized as false.", 5),
-            ],
+            warnings=page_warnings,
         )
 
     def _page_5_assembly_investments(self, rows: list[list[str]]) -> dict[str, Any]:
-        items = [
-            {"description": one_line(cell(rows, index, 0)), "capex_rs": parse_float(cell(rows, index, 2)), "operating_rs": parse_float(cell(rows, index, 3))}
-            for index in range(15, 22)
-            if one_line(cell(rows, index, 0))
-        ]
+        section_index = find_row_index(rows, lambda row: row and "before afm machining assembly" in one_line(row[0]).lower())
+        if section_index is None:
+            section_index = 13
+        total_index = find_row_index(rows, lambda row: row and one_line(row[0]).lower().startswith("total assembly investment"), section_index + 1)
+        item_rows = rows[section_index + 1 : total_index] if total_index is not None else rows[section_index + 1 :]
+        items = []
+        for row in item_rows:
+            description = one_line(row[0] if row else "")
+            if not description or description.lower() in {"capex", "operating"}:
+                continue
+            items.append(
+                {
+                    "description": description,
+                    "capex_rs": parse_float(row[2] if len(row) > 2 else ""),
+                    "operating_rs": parse_float(row[3] if len(row) > 3 else ""),
+                }
+            )
+        total_row = row_by_label_prefix(rows, "Total Assembly Investment", section_index + 1)
+        all_cells_row = row_by_label_prefix(rows, "Total Assembly Investment for all cells", section_index + 1)
         return {
-            "section_title": "BEFORE AFM MACHINING ASSEMBLY",
+            "section_title": clean_section_title(cell(rows, section_index, 0)),
             "items": items,
-            "total_assembly_investment": {"capex_rs": parse_float(cell(rows, 22, 2)), "operating_rs": parse_float(cell(rows, 22, 3))},
-            "total_assembly_investment_for_all_cells": {"capex_rs": parse_float(cell(rows, 23, 2)), "operating_rs": parse_float(cell(rows, 23, 3))},
+            "total_assembly_investment": {
+                "capex_rs": parse_float(total_row[2] if len(total_row) > 2 else ""),
+                "operating_rs": parse_float(total_row[3] if len(total_row) > 3 else ""),
+            },
+            "total_assembly_investment_for_all_cells": {
+                "capex_rs": parse_float(all_cells_row[2] if len(all_cells_row) > 2 else ""),
+                "operating_rs": parse_float(all_cells_row[3] if len(all_cells_row) > 3 else ""),
+            },
         }
 
     def _page_5_after_assembly(self, rows: list[list[str]]) -> dict[str, Any]:
-        items = [
-            {
-                "description": one_line(cell(rows, index, 0)),
-                "capex_rs": parse_float(cell(rows, index, 2)),
-                "operating_rs": parse_float(cell(rows, index, 3)),
-                "cycle_time_min": parse_float(cell(rows, index, 4)),
-            }
-            for index in range(33, 44)
-            if one_line(cell(rows, index, 0))
-        ]
+        involved_row = row_by_label_prefix(rows, "Is after assembly machining involved?")
+        section_index = find_row_index(rows, lambda row: row and one_line(row[0]).lower() == "before afm machining")
+        if section_index is None:
+            section_index = 32
+        total_index = find_row_index(rows, lambda row: row and one_line(row[0]).lower().startswith("total after assembly machining investment"), section_index + 1)
+        item_rows = rows[section_index + 1 : total_index] if total_index is not None else rows[section_index + 1 :]
+        items = []
+        for row in item_rows:
+            description = one_line(row[0] if row else "")
+            if not description:
+                continue
+            items.append(
+                {
+                    "description": description,
+                    "capex_rs": parse_float(row[2] if len(row) > 2 else ""),
+                    "operating_rs": parse_float(row[3] if len(row) > 3 else ""),
+                    "cycle_time_min": parse_float(row[4] if len(row) > 4 else ""),
+                }
+            )
+        total_row = row_by_label_prefix(rows, "Total after assembly machining Investment", section_index + 1)
+        all_cells_row = row_by_label_prefix(rows, "Total after assembly machining Investment for all cells", section_index + 1)
+        total_assy_row = row_by_label_prefix(rows, "TOTAL ASSY INVESTMENTS", section_index + 1)
         return {
-            "involved": parse_bool(cell(rows, 31, 3)),
-            "involved_raw": cell(rows, 31, 3),
-            "section_title": "BEFORE AFM MACHINING",
+            "involved": parse_bool(involved_row[3] if len(involved_row) > 3 else ""),
+            "involved_raw": involved_row[3] if len(involved_row) > 3 else "",
+            "section_title": clean_section_title(cell(rows, section_index, 0)),
             "items": items,
-            "total_after_assembly_machining_investment": {"capex_rs": parse_float(cell(rows, 44, 2)), "operating_rs": parse_float(cell(rows, 44, 3))},
-            "total_after_assembly_machining_investment_for_all_cells": {"capex_rs": parse_float(cell(rows, 45, 2)), "operating_rs": parse_float(cell(rows, 45, 3))},
-            "total_assy_investments": {"capex_rs": parse_float(cell(rows, 47, 2)), "operating_rs": parse_float(cell(rows, 47, 3))},
+            "total_after_assembly_machining_investment": {
+                "capex_rs": parse_float(total_row[2] if len(total_row) > 2 else ""),
+                "operating_rs": parse_float(total_row[3] if len(total_row) > 3 else ""),
+            },
+            "total_after_assembly_machining_investment_for_all_cells": {
+                "capex_rs": parse_float(all_cells_row[2] if len(all_cells_row) > 2 else ""),
+                "operating_rs": parse_float(all_cells_row[3] if len(all_cells_row) > 3 else ""),
+            },
+            "total_assy_investments": {
+                "capex_rs": parse_float(total_assy_row[2] if len(total_assy_row) > 2 else ""),
+                "operating_rs": parse_float(total_assy_row[3] if len(total_assy_row) > 3 else ""),
+            },
             "resource_requirements": {
                 "power_rating_kw_hr": parse_float(cell(rows, 49, 3)),
                 "feasible_to_use_machining_cell_operator": parse_bool(cell(rows, 50, 3)),
@@ -694,17 +868,57 @@ class MeridianStructuredExtractionService:
             },
         }
 
+    def _page_5_sealant_type(self, rows: list[list[str]]) -> str | None:
+        row = row_by_label_prefix(rows, "Sealant consumption/ part")
+        label = one_line(row[0] if row else "")
+        match = re.search(r"\(ml\)\s*(.+)$", label, flags=re.IGNORECASE)
+        return match.group(1).strip() if match else None
+
     def _page_6(self, extraction: DocumentExtraction, raw_text: str) -> MeridianStructuredPage:
         rows = matrix(self._table(extraction, "p6_t1"))
         casting_rows = matrix(self._table(extraction, "p6_t2"))
         machining_rows = matrix(self._table(extraction, "p6_t3"))
-        casting_items, numbered_points = self._page_6_casting_remarks(casting_rows)
-        machining_items = [{"text": one_line(row[0]), "source": "pdf_text", "evidence_refs": []} for row in machining_rows if row and one_line(row[0])]
-        third = one_line(cell(rows, 9, 0)).split("Estimation to be reviewed", 1)
-        if len(third) == 2:
-            estimation_text = "Estimation to be reviewed" + third[1]
-            if all(item["text"] != estimation_text for item in machining_items):
-                machining_items.append({"text": estimation_text, "source": "pdf_text", "evidence_refs": []})
+        has_email_image = self._page_has_image(extraction, 6)
+        remarks_sections, duplicate_count = self._page_6_remarks_sections(rows, casting_rows, machining_rows, has_email_image)
+        email_evidence = (
+            [
+                {
+                    "evidence_id": "page6_email_1",
+                    "source_type": "embedded_image",
+                    "extraction_status": "vision_llm_deferred",
+                    "linked_remark_sections": ["casting"],
+                    "subject": None,
+                    "from": None,
+                    "to": [],
+                    "cc": [],
+                    "sent_at": None,
+                    "body_text": None,
+                    "extracted_points": [],
+                    "raw_image_ref": {"page_number": 6, "image_index": 1},
+                }
+            ]
+            if has_email_image
+            else []
+        )
+        page_warnings: list[ExtractionWarning] = []
+        if has_email_image:
+            page_warnings.append(
+                warning(
+                    "email_screenshot_deferred",
+                    "Page 6 contains embedded image evidence that requires vision LLM extraction.",
+                    6,
+                    {"image_ref": {"page_number": 6, "image_index": 1}},
+                )
+            )
+        if duplicate_count:
+            page_warnings.append(
+                warning(
+                    "duplicate_machining_remarks",
+                    "Duplicate machining remarks were detected across extracted tables/text and deduplicated.",
+                    6,
+                    {"duplicate_count": duplicate_count},
+                )
+            )
 
         return MeridianStructuredPage(
             page_number=6,
@@ -725,63 +939,150 @@ class MeridianStructuredExtractionService:
                 "casting_weight_kg": parse_float(cell(rows, 5, 3)),
                 "lbh_mm": parse_lbh(cell(rows, 6, 3)),
             },
-            remarks_sections=[
-                {"section_type": "casting", "title": "Casting Remarks", "items": casting_items, "numbered_points": numbered_points},
-                {"section_type": "machining", "title": "Machining Remarks", "items": machining_items, "numbered_points": []},
-                {"section_type": "assembly", "title": "Assembly Remarks", "items": [], "numbered_points": []},
-            ],
-            email_evidence=[
-                {
-                    "evidence_id": "page6_email_1",
-                    "source_type": "embedded_image",
-                    "extraction_status": "vision_llm_deferred",
-                    "linked_remark_sections": ["casting"],
-                    "subject": None,
-                    "from": None,
-                    "to": [],
-                    "cc": [],
-                    "sent_at": None,
-                    "body_text": None,
-                    "extracted_points": [],
-                    "raw_image_ref": {"page_number": 6, "image_index": 1},
-                }
-            ],
+            remarks_sections=remarks_sections,
+            email_evidence=email_evidence,
             raw_tables=self._page_tables(extraction, 6),
             raw_text=raw_text,
-            warnings=[
-                warning("email_screenshot_deferred", "Page 6 contains an email screenshot that requires vision LLM extraction.", 6),
-                warning("duplicate_machining_remarks", "Machining remarks appear in multiple extracted tables; normalized remarks should deduplicate repeated text.", 6),
-            ],
+            warnings=page_warnings,
         )
 
-    def _page_6_casting_remarks(self, rows: list[list[str]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    def _page_has_image(self, extraction: DocumentExtraction, page_number: int) -> bool:
+        page = next((page for page in extraction.pages if page.page_number == page_number), None)
+        return bool(page and page.image_count > 0)
+
+    def _page_6_remarks_sections(
+        self,
+        main_rows: list[list[str]],
+        casting_rows: list[list[str]],
+        machining_rows: list[list[str]],
+        has_email_image: bool,
+    ) -> tuple[list[dict[str, Any]], int]:
+        sections: dict[str, dict[str, Any]] = {}
+        duplicate_count = 0
+
+        def ensure_section(title: str) -> dict[str, Any]:
+            section_type = self._remark_section_type(title)
+            if section_type not in sections:
+                sections[section_type] = {"section_type": section_type, "title": title, "items": []}
+            return sections[section_type]
+
+        def add_items(section: dict[str, Any], new_items: list[dict[str, Any]]) -> None:
+            nonlocal duplicate_count
+            seen = {one_line(item["text"]).lower() for item in section["items"]}
+            for item in new_items:
+                key = one_line(item["text"]).lower()
+                if key in seen:
+                    duplicate_count += 1
+                    continue
+                section["items"].append(item)
+                seen.add(key)
+
+        for row in main_rows:
+            lines = [line.strip() for line in clean_text(row[0] if row else "").splitlines() if line.strip()]
+            if not lines:
+                continue
+            heading_match = re.match(r"^(.+?\s+Remarks):$", lines[0], flags=re.IGNORECASE)
+            if not heading_match:
+                continue
+            section = ensure_section(heading_match.group(1))
+            add_items(section, self._page_6_remark_items(lines[1:], has_email_image=has_email_image))
+
+        casting_section = ensure_section("Casting Remarks")
+        add_items(casting_section, self._page_6_remark_items(self._table_lines(casting_rows), has_email_image=has_email_image))
+
+        machining_section = ensure_section("Machining Remarks")
+        add_items(machining_section, self._page_6_remark_items(self._table_lines(machining_rows), has_email_image=has_email_image))
+
+        if "assembly" not in sections:
+            ensure_section("Assembly Remarks")
+
+        return list(sections.values()), duplicate_count
+
+    def _page_6_remark_items(self, lines: list[str], *, has_email_image: bool, force_email_refs: bool = False) -> list[dict[str, Any]]:
         items: list[dict[str, Any]] = []
-        numbered_points: list[dict[str, Any]] = []
+        for line in lines:
+            stripped = line.strip()
+            if not stripped or stripped.lower().startswith("factors into our pricing"):
+                continue
+            number_match = re.match(r"^(\d+)\.\s*(.+)$", stripped)
+            refs = self._page_6_evidence_refs(stripped, has_email_image=has_email_image, force_email_refs=force_email_refs or bool(number_match))
+            if number_match:
+                items.append(
+                    {
+                        "number": int(number_match.group(1)),
+                        "text": number_match.group(2),
+                        "item_type": "numbered_remark",
+                        "source": "pdf_text",
+                        "evidence_refs": refs,
+                    }
+                )
+            else:
+                items.append(
+                    {
+                        "text": stripped,
+                        "item_type": "remark",
+                        "source": "pdf_text",
+                        "evidence_refs": refs,
+                    }
+                )
+        return items
+
+    def _page_6_evidence_refs(self, text: str, *, has_email_image: bool, force_email_refs: bool = False) -> list[str]:
+        if not has_email_image:
+            return []
+        lowered = text.lower()
+        if force_email_refs or "email" in lowered or "afm process" in lowered:
+            return ["page6_email_1"]
+        return []
+
+    def _table_lines(self, rows: list[list[str]]) -> list[str]:
+        lines: list[str] = []
         for row in rows:
             text = clean_text(row[0] if row else "")
             if not text:
                 continue
-            for line in text.splitlines():
-                stripped = line.strip()
-                if not stripped:
-                    continue
-                match = re.match(r"^(\d+)\.\s*(.+)$", stripped)
-                if match:
-                    numbered_points.append(
-                        {
-                            "number": int(match.group(1)),
-                            "text": match.group(2),
-                            "source": "pdf_text",
-                            "evidence_refs": ["page6_email_1"],
-                        }
-                    )
-                elif not stripped.lower().startswith("factors into our pricing"):
-                    refs = ["page6_email_1"] if "email" in stripped.lower() or "AFM process" in stripped else []
-                    items.append({"text": stripped, "source": "pdf_text", "evidence_refs": refs})
-        return items, numbered_points
+            lines.extend(line.strip() for line in text.splitlines() if line.strip())
+        return lines
+
+    def _remark_section_type(self, title: str) -> str:
+        text = re.sub(r"\s+remarks?$", "", title.strip(), flags=re.IGNORECASE)
+        key = re.sub(r"[^a-z0-9]+", "_", text.lower()).strip("_")
+        return key or "other"
 
     def _page_7(self, extraction: DocumentExtraction, raw_text: str) -> MeridianStructuredPage:
         rows = matrix(self._table(extraction, "p7_t1"))
+        page_warnings: list[ExtractionWarning] = []
+        section_title = one_line(cell(rows, 7, 0))
+        if "\n" in clean_text(cell(rows, 1, 2)) or "annual volume" in one_line(cell(rows, 1, 2)).lower():
+            page_warnings.append(
+                warning(
+                    "messy_header_extraction",
+                    "Page 7 header labels were merged into one extracted table cell; normalized header values were reconstructed from table/text positions.",
+                    7,
+                    {"source_value": clean_text(cell(rows, 1, 2))},
+                )
+            )
+        if "qunaity" in section_title.lower():
+            page_warnings.append(
+                warning(
+                    "source_typo_preserved",
+                    "Section title contains source spelling 'qunaity'; preserve source title unless explicitly normalized.",
+                    7,
+                    {"section_title": section_title},
+                )
+            )
+        arrangements = self._page_7_arrangements(rows, page_warnings)
+        selected_components = parse_int(row_value(rows, "No. of components per box", 3))
+        selected_arrangement_no = self._page_7_selected_arrangement_no(arrangements, selected_components)
+        if selected_components is not None and selected_arrangement_no is None:
+            page_warnings.append(
+                warning(
+                    "selected_arrangement_not_inferred",
+                    "Selected number of components per box is present, but selected arrangement number is not uniquely inferable.",
+                    7,
+                    {"selected_no_of_components_per_box": selected_components},
+                )
+            )
         return MeridianStructuredPage(
             page_number=7,
             page_type="packing_estimation",
@@ -800,23 +1101,19 @@ class MeridianStructuredExtractionService:
                 "lbh_mm": parse_lbh(cell(rows, 5, 4)),
             },
             packing_box_quantity_working={
-                "section_title": one_line(cell(rows, 7, 0)),
+                "section_title": section_title,
                 "component_image_present": True,
                 "part_size_mm": self._dimensions_row(rows, "Part size"),
                 "packing_box_size_mm": self._dimensions_row(rows, "Packing box size"),
                 "allowances_mm": self._dimensions_row(rows, "Allowances"),
-                "arrangements": self._page_7_arrangements(rows),
-                "selected_no_of_components_per_box": parse_int(row_value(rows, "No. of components per box", 3)),
-                "selected_arrangement_no": None,
-                "free_text_rows": [{"text": "Protection cap to be considered in pricing.", "source": "pdf_text"}],
+                "arrangements": arrangements,
+                "selected_no_of_components_per_box": selected_components,
+                "selected_arrangement_no": selected_arrangement_no,
+                "free_text_rows": self._page_7_free_text_rows(rows),
             },
             raw_tables=self._page_tables(extraction, 7),
             raw_text=raw_text,
-            warnings=[
-                warning("messy_header_extraction", "Page 7 header labels were merged into one extracted table cell; normalized header values were reconstructed from table/text positions.", 7),
-                warning("source_typo_preserved", "Section title contains source spelling 'qunaity'; preserve source title unless explicitly normalized.", 7),
-                warning("selected_arrangement_not_inferred", "Selected number of components per box is present, but selected arrangement number is not explicitly stated.", 7),
-            ],
+            warnings=page_warnings,
         )
 
     def _dimensions_row(self, rows: list[list[str]], label: str) -> dict[str, int | None]:
@@ -829,21 +1126,55 @@ class MeridianStructuredExtractionService:
                 }
         return {"length": None, "breadth": None, "height": None}
 
-    def _page_7_arrangements(self, rows: list[list[str]]) -> list[dict[str, Any]]:
+    def _page_7_arrangements(self, rows: list[list[str]], page_warnings: list[ExtractionWarning] | None = None) -> list[dict[str, Any]]:
         arrangements = []
         for index, row in enumerate(rows):
             label = one_line(row[0] if row else "")
             match = re.fullmatch(r"Arrangement\s+(\d+)", label)
             if not match:
                 continue
-            components_row = rows[index + 1] if index + 1 < len(rows) else []
+            components_row = self._page_7_nearby_components_row(rows, index)
+            no_of_components = parse_int(components_row[3] if len(components_row) > 3 else "")
+            if page_warnings is not None and no_of_components is None:
+                page_warnings.append(
+                    warning(
+                        "incomplete_arrangement_row",
+                        f"Arrangement {match.group(1)} did not have a nearby parseable component-count row.",
+                        7,
+                        {"arrangement_no": int(match.group(1)), "row_index": index, "row_text": row_text(row)},
+                    )
+                )
             arrangements.append(
                 {
                     "arrangement_no": int(match.group(1)),
                     "length_count": parse_float(row[3] if len(row) > 3 else ""),
                     "breadth_count": parse_float(row[4] if len(row) > 4 else ""),
                     "height_count": parse_float(row[5] if len(row) > 5 else ""),
-                    "no_of_components": parse_int(components_row[3] if len(components_row) > 3 else ""),
+                    "no_of_components": no_of_components,
                 }
             )
         return arrangements
+
+    def _page_7_nearby_components_row(self, rows: list[list[str]], arrangement_index: int) -> list[str]:
+        for row in rows[arrangement_index + 1 : min(arrangement_index + 4, len(rows))]:
+            label = one_line(row[0] if row else "").lower()
+            if label.startswith("no. of components") and "per box" not in label:
+                return row
+        return []
+
+    def _page_7_selected_arrangement_no(self, arrangements: list[dict[str, Any]], selected_components: int | None) -> int | None:
+        if selected_components is None:
+            return None
+        matches = [arrangement["arrangement_no"] for arrangement in arrangements if arrangement.get("no_of_components") == selected_components]
+        return matches[0] if len(matches) == 1 else None
+
+    def _page_7_free_text_rows(self, rows: list[list[str]]) -> list[dict[str, str]]:
+        selected_index = find_row_index(rows, lambda row: row and one_line(row[0]).lower().startswith("no. of components per box"))
+        if selected_index is None:
+            return []
+        free_text_rows: list[dict[str, str]] = []
+        for row in rows[selected_index + 1 :]:
+            text = one_line(row[0] if row else "")
+            if text:
+                free_text_rows.append({"text": text, "source": "pdf_text"})
+        return free_text_rows
