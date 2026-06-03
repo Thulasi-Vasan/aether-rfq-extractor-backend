@@ -1,7 +1,7 @@
 from enum import Enum
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 BBox = tuple[float, float, float, float]
 
@@ -103,6 +103,27 @@ class TablesResponse(BaseModel):
     filename: str
     page_count: int
     tables: list[ExtractedTable]
+    warnings: list[ExtractionWarning] = Field(default_factory=list)
+
+
+class MeridianStructuredPage(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    page_number: int
+    page_type: str
+    title: str | None = None
+    header: dict[str, Any] = Field(default_factory=dict)
+    raw_tables: list[ExtractedTable] = Field(default_factory=list)
+    raw_text: str = ""
+    warnings: list[ExtractionWarning] = Field(default_factory=list)
+
+
+class MeridianExtractionResponse(BaseModel):
+    document_id: str
+    filename: str
+    page_count: int
+    pages: list[MeridianStructuredPage]
+    raw_tables: list[ExtractedTable] = Field(default_factory=list)
     warnings: list[ExtractionWarning] = Field(default_factory=list)
 
 

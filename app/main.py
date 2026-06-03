@@ -12,11 +12,13 @@ from app.models import (
     DocumentSummary,
     ExcelFillResponse,
     ErrorResponse,
+    MeridianExtractionResponse,
     ReferenceDocumentResponse,
     TablesResponse,
 )
 from app.services.errors import DocumentNotFoundError, ExtractorError
 from app.services.extractor import PdfExtractionService
+from app.services.meridian import MeridianStructuredExtractionService
 from app.services.meridian_excel import MeridianExcelFillService
 from app.services.storage import DocumentStore, document_id_from_sha256, sha256_file
 
@@ -159,6 +161,17 @@ def get_page_tables(
         tables=tables,
         warnings=extraction.warnings,
     )
+
+
+@app.get("/v1/documents/{document_id}/meridian", response_model=MeridianExtractionResponse)
+def get_meridian_extraction(
+    document_id: str,
+    include_raw: bool = Query(default=False),
+    store: DocumentStore = Depends(get_store),
+) -> MeridianExtractionResponse:
+    extraction = store.load_extraction(document_id)
+    pdf_path = store.upload_path(document_id)
+    return MeridianStructuredExtractionService().build(extraction, pdf_path=pdf_path, include_raw=include_raw)
 
 
 @app.get("/v1/reference-document", response_model=ReferenceDocumentResponse)
