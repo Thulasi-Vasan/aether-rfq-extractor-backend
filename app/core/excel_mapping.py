@@ -542,11 +542,19 @@ def set_cell_value(sheet, coord: str, value: Any):
 
 def _get_cap_val(r: Any, match_str: str, key: str) -> Any:
     if not hasattr(r, "pages") or not r.pages: return None
+    normalized_match = normalize(match_str)
+    candidates = []
     for cat in getattr(r.pages[0], "capital_investments", []):
         for item in (cat.get("items", []) if isinstance(cat, dict) else []):
             desc = item.get("description", "") if isinstance(item, dict) else getattr(item, "description", "")
-            if normalize(match_str) in normalize(desc) or normalize(desc) in normalize(match_str):
+            normalized_desc = normalize(desc)
+            if normalized_desc == normalized_match:
                 return item.get(key) if isinstance(item, dict) else getattr(item, key, None)
+            if normalized_match in normalized_desc or normalized_desc in normalized_match:
+                candidates.append(item)
+    if candidates:
+        item = candidates[0]
+        return item.get(key) if isinstance(item, dict) else getattr(item, key, None)
     return None
 
 def _get_op_val(r: Any, match_str: str, key: str) -> Any:
@@ -564,7 +572,6 @@ def _get_op_val(r: Any, match_str: str, key: str) -> Any:
         if normalize(match_str) in normalize(desc) or normalize(desc) in normalize(match_str):
             return item.get(key) if isinstance(item, dict) else getattr(item, key, None)
     return None
-
 
 
 
