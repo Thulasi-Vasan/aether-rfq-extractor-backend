@@ -4,7 +4,7 @@ from pathlib import Path
 from shutil import copyfile
 
 from app.core.config import Settings
-from app.models import DocumentExtraction
+from app.models import DocumentExtraction, FieldProvenance
 from app.services.errors import DocumentNotFoundError
 
 
@@ -59,6 +59,24 @@ class DocumentStore:
         if not path.exists():
             raise DocumentNotFoundError(f"Document extraction '{document_id}' was not found.")
         return DocumentExtraction.model_validate_json(path.read_text(encoding="utf-8"))
+
+    def provenance_path(self, document_id: str) -> Path:
+        return self.settings.extractions_dir / f"{document_id}_provenance.json"
+
+    def save_provenance(self, document_id: str, records: list[FieldProvenance]) -> Path:
+        path = self.provenance_path(document_id)
+        path.write_text(
+            json.dumps([r.model_dump() for r in records], indent=2, default=str),
+            encoding="utf-8",
+        )
+        return path
+
+    def load_provenance(self, document_id: str) -> list[FieldProvenance] | None:
+        path = self.provenance_path(document_id)
+        if not path.exists():
+            return None
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        return [FieldProvenance.model_validate(item) for item in raw]
 
     def write_debug_json(self, document_id: str, name: str, payload: object) -> None:
         if not self.settings.enable_debug_artifacts:

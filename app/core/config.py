@@ -16,6 +16,13 @@ class Settings(BaseSettings):
     excel_target_fill_color: str = Field(default="FFFFFF00", validation_alias="AETHER_EXCEL_TARGET_FILL_COLOR")
     excel_template_path: Path = Field(default=Path("samples/Input Template.xlsx"), validation_alias="AETHER_EXCEL_TEMPLATE_PATH",)
 
+    # AWS Bedrock — set these via env vars or .env file
+    bedrock_region: str = Field(default="us-east-1", validation_alias="AETHER_BEDROCK_REGION")
+    bedrock_model_id: str = Field(
+        default="amazon.nova-lite-v1:0",
+        validation_alias="AETHER_BEDROCK_MODEL_ID",
+    )
+
     @property
     def uploads_dir(self) -> Path:
         return self.data_dir / "uploads"

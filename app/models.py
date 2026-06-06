@@ -133,3 +133,23 @@ class ReferenceDocumentResponse(BaseModel):
     document_id: str | None = None
     extracted: bool = False
     message: str | None = None
+
+
+SourceType = Literal["pdf_cell", "derived", "default", "inferred", "not_available"]
+
+
+class FieldProvenance(BaseModel):
+    excel_cell: str
+    field_key: str
+    label: str
+    value: Any
+    source_type: SourceType
+    reason: str
+    pdf_filename: str | None = None
+    page_number: int | None = None
+    table_index: int | None = None
+    row_index: int | None = None
+    col_index: int | None = None
+    bbox: BBox | None = None
+    page_width: float | None = None
+    page_height: float | None = None

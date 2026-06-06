@@ -13,6 +13,7 @@ from app.models import (
     ExtractionWarning,
     MeridianExtractionResponse,
     MeridianStructuredPage,
+    TableCell,
     WarningSeverity,
 )
 
@@ -115,6 +116,92 @@ def matrix(table: ExtractedTable | None) -> list[list[str]]:
         [cell.text for cell in sorted(row.cells, key=lambda cell: cell.column)]
         for row in sorted(table.rows, key=lambda row: row.index)
     ]
+
+
+def matrix_cells(table: ExtractedTable | None) -> list[list[TableCell | None]]:
+    """Like matrix() but returns TableCell objects so bbox is preserved."""
+    if table is None:
+        return []
+    return [
+        [cell for cell in sorted(row.cells, key=lambda c: c.column)]
+        for row in sorted(table.rows, key=lambda r: r.index)
+    ]
+
+
+def cell_at(cell_rows: list[list[TableCell | None]], row: int, col: int) -> TableCell | None:
+    """Safely index into a cell matrix, returning None if out of bounds."""
+    if row < 0 or row >= len(cell_rows):
+        return None
+    r = cell_rows[row]
+    if col < 0 or col >= len(r):
+        return None
+    return r[col]
+
+
+def find_text_in_tables(
+    tables: list[ExtractedTable], search_text: str, *, page_number: int | None = None
+) -> tuple[ExtractedTable, TableCell, int, int] | None:
+    """Search for a cell whose text contains search_text (case-insensitive).
+    Returns (table, cell, row_idx, col_idx) of the first match, or None.
+    """
+    needle = search_text.strip().lower()
+    for table in tables:
+        if page_number is not None and table.page_number != page_number:
+            continue
+        rows = sorted(table.rows, key=lambda r: r.index)
+        for row_idx, row in enumerate(rows):
+            for col_idx, tc in enumerate(sorted(row.cells, key=lambda c: c.column)):
+                if needle in tc.text.strip().lower():
+                    return (table, tc, row_idx, col_idx)
+    return None
+
+
+# Maps field_key -> (table_id, row_idx, col_idx) for fields with known static positions.
+# Used by excel_populator to look up bbox without re-running extraction.
+FIELD_PROVENANCE_SOURCES: dict[str, tuple[str, int, int]] = {
+    # Page 1 header (p1_t1)
+    "rfq_no": ("p1_t1", 1, 2),
+    "customer": ("p1_t1", 2, 2),
+    "annual_volume_nos": ("p1_t1", 2, 9),
+    "annual_volume_with_rejection": ("p1_t1", 3, 9),
+    "final_part_no": ("p1_t1", 3, 2),
+    "final_part_rev_no": ("p1_t1", 4, 2),
+    "description": ("p1_t1", 5, 2),
+    "alloy": ("p1_t1", 6, 2),
+    "machined_part_weight_kg": ("p1_t1", 4, 9),
+    "casting_weight_kg": ("p1_t1", 5, 9),
+    "lbh_length_mm": ("p1_t1", 6, 9),
+    "lbh_breadth_mm": ("p1_t1", 6, 9),
+    "lbh_height_mm": ("p1_t1", 6, 9),
+    "pkg_lbh_length_mm": ("p1_t1", 6, 9),
+    "pkg_lbh_breadth_mm": ("p1_t1", 6, 9),
+    "pkg_lbh_height_mm": ("p1_t1", 6, 9),
+    # Page 1 casting cell details (p1_t1)
+    "sand_core_weight_kg": ("p1_t1", 13, 10),
+    "casting_man_power": ("p1_t1", 14, 10),
+    "casting_floor_space_sq_m": ("p1_t1", 15, 10),
+    "surface_coating_involved": ("p1_t1", 19, 10),
+    # Page 1 die details (p1_t1)
+    "no_of_dies": ("p1_t1", 53, 3),
+    "die_amount_per_cell_rs_lac": ("p1_t1", 53, 4),
+    "die_life_shots": ("p1_t1", 54, 5),
+    "core_box_life_shots": ("p1_t1", 55, 5),
+    # Page 1 power rating (p1_t1)
+    "casting_cell_power_kw_hr": ("p1_t1", 59, 10),
+    "melting_furnace_capacity": ("p1_t1", 61, 9),
+    "melting_furnace_power_kw_hr": ("p1_t1", 61, 10),
+    "heat_treatment_power": ("p1_t1", 62, 10),
+    "shot_blasting_power": ("p1_t1", 63, 10),
+    # Page 3 machining header (p3_t1)
+    "machining_rfq_no": ("p3_t1", 1, 1),
+    "machining_customer": ("p3_t1", 2, 1),
+    "machining_annual_volume_nos": ("p3_t1", 2, 7),
+    "machining_annual_volume_with_rejection": ("p3_t1", 3, 7),
+    "machining_final_part_no": ("p3_t1", 3, 1),
+    "machining_final_part_rev_no": ("p3_t1", 4, 1),
+    "machining_description": ("p3_t1", 5, 1),
+    "machining_part_weight_kg": ("p3_t1", 4, 7),
+}
 
 
 def cell(rows: list[list[str]], row: int, column: int) -> str:
