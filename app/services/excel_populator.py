@@ -116,9 +116,11 @@ def _build_provenance_record(
                     page_height=page_meta.height if page_meta else None,
                 )
 
-    # Fallback: text search across all tables
+    # Fallback: text search across all tables — skip for numeric/short values as they
+    # appear too frequently in the PDF and produce unreliable matches.
     raw_text = str(val) if val is not None else ""
-    if raw_text:
+    _is_numeric = raw_text.replace(".", "", 1).replace("-", "", 1).isdigit()
+    if raw_text and not _is_numeric and len(raw_text) >= 5:
         match = find_text_in_tables(doc_extraction.tables, raw_text)
         if match:
             table, tc, row_idx, col_idx = match

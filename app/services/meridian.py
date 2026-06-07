@@ -201,6 +201,33 @@ FIELD_PROVENANCE_SOURCES: dict[str, tuple[str, int, int]] = {
     "machining_final_part_rev_no": ("p3_t1", 4, 1),
     "machining_description": ("p3_t1", 5, 1),
     "machining_part_weight_kg": ("p3_t1", 4, 7),
+    # Page 5 assembly cycle time details (p5_t1)
+    "assembly_cycle_time_min": ("p5_t1", 8, 2),
+    "aam_cycle_time_min": ("p5_t1", 8, 3),
+    "assembly_output_per_hr": ("p5_t1", 9, 2),
+    "aam_output_per_hr": ("p5_t1", 9, 3),
+    "assembly_cell_capacity": ("p5_t1", 10, 2),
+    "aam_cell_capacity": ("p5_t1", 10, 3),
+    "assembly_cell_utilisation": ("p5_t1", 11, 2),
+    "aam_cell_utilisation": ("p5_t1", 11, 3),
+    "assembly_no_of_cells": ("p5_t1", 12, 2),
+    "aam_no_of_cells": ("p5_t1", 12, 3),
+    # Page 5 assembly resource requirements (p5_t1)
+    "sealant_consumption_ml": ("p5_t1", 25, 3),
+    "aam_sealant_consumption_ml": ("p5_t1", 25, 3),
+    "assembly_power_kw_hr": ("p5_t1", 26, 3),
+    "aam_power_kw_hr": ("p5_t1", 26, 3),
+    "assembly_manpower": ("p5_t1", 28, 3),
+    "aam_manpower": ("p5_t1", 28, 3),
+    "assembly_floor_space_sq_m": ("p5_t1", 29, 3),
+    "aam_floor_space_sq_m": ("p5_t1", 29, 3),
+    # Page 5 after-assembly machining resource requirements (p5_t1)
+    "aam_resource_power_kw_hr": ("p5_t1", 49, 3),
+    "aam_resource_power_kw_hr_2": ("p5_t1", 49, 3),
+    "aam_resource_manpower": ("p5_t1", 51, 3),
+    "aam_resource_manpower_2": ("p5_t1", 51, 3),
+    "aam_resource_floor_space": ("p5_t1", 52, 3),
+    "aam_resource_floor_space_2": ("p5_t1", 52, 3),
 }
 
 
