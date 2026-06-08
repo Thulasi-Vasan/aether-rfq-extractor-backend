@@ -138,6 +138,46 @@ def cell_at(cell_rows: list[list[TableCell | None]], row: int, col: int) -> Tabl
     return r[col]
 
 
+def cell_by_index(table: ExtractedTable | None, row_index: int, col: int) -> TableCell | None:
+    """Find a cell by its REAL TableCell.row / TableCell.column.
+
+    Unlike cell_at (positional), this is robust to rows that omit blank columns,
+    so a stored (row, col) source always resolves to the exact same cell/bbox.
+    """
+    if table is None:
+        return None
+    for table_row in table.rows:
+        for tc in table_row.cells:
+            if tc.row == row_index and tc.column == col:
+                return tc
+    return None
+
+
+def src(table_id: str, table_cell: TableCell | None) -> dict | None:
+    """Build a provenance source descriptor from the exact cell that produced a value.
+
+    Stores the cell's real row/column (not a positional guess); bbox is resolved
+    later via cell_by_index to keep the structured JSON lean.
+    """
+    if table_cell is None:
+        return None
+    return {"table_id": table_id, "row": table_cell.row, "col": table_cell.column}
+
+
+def labeled_src(
+    str_rows: list[list[str]],
+    cells: list[list[TableCell | None]],
+    table_id: str,
+    label: str,
+    value_column: int = 1,
+) -> dict | None:
+    """Source for a value found by matching `label` in column 0 (mirrors row_value)."""
+    for index, row in enumerate(str_rows):
+        if row and one_line(row[0]).lower() == label.lower():
+            return src(table_id, cell_at(cells, index, value_column))
+    return None
+
+
 def find_text_in_tables(
     tables: list[ExtractedTable], search_text: str, *, page_number: int | None = None
 ) -> tuple[ExtractedTable, TableCell, int, int] | None:
@@ -375,6 +415,8 @@ class MeridianStructuredExtractionService:
     def _page_1(self, extraction: DocumentExtraction, raw_text: str) -> MeridianStructuredPage:
         table = self._table(extraction, "p1_t1")
         rows = matrix(table)
+        cells = matrix_cells(table)
+        tid = table.table_id if table else "p1_t1"
         page_warnings: list[ExtractionWarning] = []
 
         header = {
@@ -399,11 +441,13 @@ class MeridianStructuredExtractionService:
             row = rows[index]
             raw_operation = clean_text(row[0] if row else "")
             value_row = row
+            value_index = index
             if raw_operation.startswith("Output/"):
                 parts = [part.strip() for part in raw_operation.splitlines() if part.strip()]
                 operation = parts[-1] if len(parts) > 1 else ""
                 if index + 1 < len(rows):
                     value_row = rows[index + 1]
+                    value_index = index + 1
             else:
                 operation = one_line(raw_operation)
             if not operation:
@@ -414,6 +458,11 @@ class MeridianStructuredExtractionService:
                     "no_of_cavities_or_loading": parse_int(value_row[3] if len(value_row) > 3 else ""),
                     "cycle_time_min": parse_float(value_row[4] if len(value_row) > 4 else ""),
                     "output_per_hr": parse_int(value_row[5] if len(value_row) > 5 else ""),
+                    "_sources": {
+                        "no_of_cavities_or_loading": src(tid, cell_at(cells, value_index, 3)),
+                        "cycle_time_min": src(tid, cell_at(cells, value_index, 4)),
+                        "output_per_hr": src(tid, cell_at(cells, value_index, 5)),
+                    },
                 }
             )
 
@@ -425,12 +474,15 @@ class MeridianStructuredExtractionService:
             "floor_space_per_cell_sq_m": parse_float(cell(rows, 15, 10)),
             "shot_blasting_type": " ".join(part for part in [one_line(cell(rows, 17, 10)), one_line(cell(rows, 18, 10))] if part),
             "surface_coating_involved": cell(rows, 19, 10),
+            "_sources": {
+                "shot_blasting_type": src(tid, cell_at(cells, 17, 10)),
+            },
         }
 
-        capital_investments = self._page_1_capital(rows)
-        operating_costs = self._page_1_operating(rows)
+        capital_investments = self._page_1_capital(rows, cells, tid)
+        operating_costs = self._page_1_operating(rows, cells, tid)
         die_details = self._page_1_die_details(rows, operating_costs)
-        testing_cost_details = self._page_1_testing(rows)
+        testing_cost_details = self._page_1_testing(rows, cells, tid)
         power_rating_details = self._page_1_power(rows)
         approval = {
             "prepared_by": "EA / KVG",
@@ -472,10 +524,17 @@ class MeridianStructuredExtractionService:
             warnings=page_warnings,
         )
 
-    def _page_1_capital(self, rows: list[list[str]]) -> list[dict[str, Any]]:
+    def _page_1_capital(
+        self,
+        rows: list[list[str]],
+        cells: list[list[TableCell | None]] | None = None,
+        table_id: str = "p1_t1",
+    ) -> list[dict[str, Any]]:
+        cells = cells or []
         groups: list[dict[str, Any]] = []
         current: dict[str, Any] | None = None
-        for row in rows[21:54]:
+        for index in range(21, min(54, len(rows))):
+            row = rows[index]
             label = reverse_vertical_label(row[0] if row else "")
             description = one_line(row[1] if len(row) > 1 else "")
             if description == "Band saw machine":
@@ -495,6 +554,13 @@ class MeridianStructuredExtractionService:
                     "units": parse_int(row[3] if len(row) > 3 else ""),
                     "amount_per_cell_rs_lac": parse_float(row[4] if len(row) > 4 else ""),
                     "total_cost_rs_lac": parse_float(row[5] if len(row) > 5 else ""),
+                    "_sources": {
+                        "description": src(table_id, cell_at(cells, index, 1)),
+                        "utilisation_percent": src(table_id, cell_at(cells, index, 2)),
+                        "units": src(table_id, cell_at(cells, index, 3)),
+                        "amount_per_cell_rs_lac": src(table_id, cell_at(cells, index, 4)),
+                        "total_cost_rs_lac": src(table_id, cell_at(cells, index, 5)),
+                    },
                 }
             )
         return groups
@@ -509,10 +575,17 @@ class MeridianStructuredExtractionService:
         assumption_row = next((row for row in rows if row and one_line(row[0]).lower().startswith("assumptions/ notes")), [])
         return parse_numbered_notes(assumption_row[0] if assumption_row else "")
 
-    def _page_1_operating(self, rows: list[list[str]]) -> list[dict[str, Any]]:
+    def _page_1_operating(
+        self,
+        rows: list[list[str]],
+        cells: list[list[TableCell | None]] | None = None,
+        table_id: str = "p1_t1",
+    ) -> list[dict[str, Any]]:
+        cells = cells or []
         groups: list[dict[str, Any]] = []
         current: dict[str, Any] | None = None
-        for row in rows[21:58]:
+        for index in range(21, min(58, len(rows))):
+            row = rows[index]
             label = reverse_vertical_label(row[7] if len(row) > 7 else "")
             if label:
                 current = {"category": label, "items": []}
@@ -526,6 +599,10 @@ class MeridianStructuredExtractionService:
                 {
                     "description": description,
                     "amount_rs_lac": parse_float(row[10] if len(row) > 10 else ""),
+                    "_sources": {
+                        "description": src(table_id, cell_at(cells, index, 8)),
+                        "amount_rs_lac": src(table_id, cell_at(cells, index, 10)),
+                    },
                 }
             )
         return groups
@@ -559,8 +636,14 @@ class MeridianStructuredExtractionService:
             "operating_total_rs_lac": parse_float(cell(rows, 57, 10)),
         }
 
-    def _page_1_testing(self, rows: list[list[str]]) -> dict[str, Any]:
-        values = {
+    def _page_1_testing(
+        self,
+        rows: list[list[str]],
+        cells: list[list[TableCell | None]] | None = None,
+        table_id: str = "p1_t1",
+    ) -> dict[str, Any]:
+        cells = cells or []
+        values: dict[str, Any] = {
             "chemical_testing_cost_per_part_rs": None,
             "x_ray_testing_cost_per_part_rs": None,
             "tensile_testing_cost_per_part_rs": None,
@@ -570,6 +653,7 @@ class MeridianStructuredExtractionService:
             "porosity_testing_cost_per_part_rs": None,
             "others_cost_per_part_rs": None,
             "total_testing_cost_per_part_rs": None,
+            "_sources": {},
         }
         mapping = {
             "Chemical Testing cost/ part": "chemical_testing_cost_per_part_rs",
@@ -582,10 +666,12 @@ class MeridianStructuredExtractionService:
             "Others (if any)": "others_cost_per_part_rs",
             "Total Testing Cost/ Part": "total_testing_cost_per_part_rs",
         }
-        for row in rows[56:66]:
+        for index in range(56, min(66, len(rows))):
+            row = rows[index]
             key = mapping.get(one_line(row[1] if len(row) > 1 else ""))
             if key:
                 values[key] = parse_float(row[5] if len(row) > 5 else "")
+                values["_sources"][key] = src(table_id, cell_at(cells, index, 5))
         return values
 
     def _page_1_power(self, rows: list[list[str]]) -> dict[str, Any]:
@@ -620,22 +706,41 @@ class MeridianStructuredExtractionService:
     def _page_3(self, extraction: DocumentExtraction, raw_text: str) -> MeridianStructuredPage:
         main = self._table(extraction, "p3_t1")
         rows = matrix(main)
-        operating_top = matrix(self._table(extraction, "p3_t2"))
-        cell_summary_rows = matrix(self._table(extraction, "p3_t3"))
-        resource_rows = matrix(self._table(extraction, "p3_t4"))
-        operating_bottom = matrix(self._table(extraction, "p3_t5"))
+        main_cells = matrix_cells(main)
+        main_tid = main.table_id if main else "p3_t1"
+        table_top = self._table(extraction, "p3_t2")
+        table_bottom = self._table(extraction, "p3_t5")
+        table_summary = self._table(extraction, "p3_t3")
+        table_resource = self._table(extraction, "p3_t4")
+        operating_top = matrix(table_top)
+        cell_summary_rows = matrix(table_summary)
+        summary_cells = matrix_cells(table_summary)
+        summary_tid = table_summary.table_id if table_summary else "p3_t3"
+        resource_rows = matrix(table_resource)
+        resource_cells = matrix_cells(table_resource)
+        resource_tid = table_resource.table_id if table_resource else "p3_t4"
+        operating_bottom = matrix(table_bottom)
         page_warnings: list[ExtractionWarning] = []
 
-        operations = self._page_3_operations(rows, page_warnings)
+        operations = self._page_3_operations(rows, page_warnings, main_cells, main_tid)
         capital_row_index = find_row_index(rows, lambda row: row_has_text(row, "Cell Cycle Time:"))
         if capital_row_index is None:
             capital_row_index = 22
 
-        operating_items = [
-            {"description": one_line(row[0]), "amount_rs": parse_int(row[1] if len(row) > 1 else "")}
-            for row in [*operating_top, *operating_bottom]
-            if row and one_line(row[0]).lower() != "total oerating cost"
-        ]
+        operating_items = []
+        for table, mtx in ((table_top, operating_top), (table_bottom, operating_bottom)):
+            op_cells = matrix_cells(table)
+            op_tid = table.table_id if table else ""
+            for idx, row in enumerate(mtx):
+                if not row or one_line(row[0]).lower() == "total oerating cost":
+                    continue
+                operating_items.append(
+                    {
+                        "description": one_line(row[0]),
+                        "amount_rs": parse_int(row[1] if len(row) > 1 else ""),
+                        "_sources": {"amount_rs": src(op_tid, cell_at(op_cells, idx, 1))},
+                    }
+                )
         total_operating_cost = next(
             (parse_int(row[1]) for row in operating_bottom if row and one_line(row[0]).lower() == "total oerating cost"),
             None,
@@ -677,6 +782,12 @@ class MeridianStructuredExtractionService:
                 "cell_capacity_nos": parse_int(row_value(cell_summary_rows, "Cell Capacity (Nos.)")),
                 "cell_utilisation_percent": parse_percent(row_value(cell_summary_rows, "Cell Utilisation")),
                 "no_of_cells": parse_int(row_value(cell_summary_rows, "No. of Cells")),
+                "_sources": {
+                    "cell_cycle_time_min": labeled_src(cell_summary_rows, summary_cells, summary_tid, "Cell Cycle Time (Min.)"),
+                    "cell_capacity_nos": labeled_src(cell_summary_rows, summary_cells, summary_tid, "Cell Capacity (Nos.)"),
+                    "cell_utilisation_percent": labeled_src(cell_summary_rows, summary_cells, summary_tid, "Cell Utilisation"),
+                    "no_of_cells": labeled_src(cell_summary_rows, summary_cells, summary_tid, "No. of Cells"),
+                },
             },
             resource_requirements={
                 "power_rating_for_cell_kw_hr": parse_float(row_value(resource_rows, "Power rating for cell (kw/hr)")),
@@ -685,6 +796,14 @@ class MeridianStructuredExtractionService:
                 "imp_salvaging_percent": parse_percent(row_value(resource_rows, "IMP Salvaging %")),
                 "setup_changeover_considered": parse_bool(row_value(resource_rows, "Setup changeover considered (Y/ N)")),
                 "no_of_variants_planned_per_cell": parse_int(row_value(resource_rows, "No of variants planned / cell")),
+                "_sources": {
+                    "power_rating_for_cell_kw_hr": labeled_src(resource_rows, resource_cells, resource_tid, "Power rating for cell (kw/hr)"),
+                    "man_power_per_shift_per_cell": labeled_src(resource_rows, resource_cells, resource_tid, "Man Power / Shift / Cell"),
+                    "floor_area_required_per_cell_sq_m": labeled_src(resource_rows, resource_cells, resource_tid, "Floor area required / cell(Sq.M)"),
+                    "imp_salvaging_percent": labeled_src(resource_rows, resource_cells, resource_tid, "IMP Salvaging %"),
+                    "setup_changeover_considered": labeled_src(resource_rows, resource_cells, resource_tid, "Setup changeover considered (Y/ N)"),
+                    "no_of_variants_planned_per_cell": labeled_src(resource_rows, resource_cells, resource_tid, "No of variants planned / cell"),
+                },
             },
             assumptions_notes=self._page_3_assumptions(rows),
             approval={
@@ -701,7 +820,14 @@ class MeridianStructuredExtractionService:
             warnings=page_warnings,
         )
 
-    def _page_3_operations(self, rows: list[list[str]], page_warnings: list[ExtractionWarning]) -> list[dict[str, Any]]:
+    def _page_3_operations(
+        self,
+        rows: list[list[str]],
+        page_warnings: list[ExtractionWarning],
+        cells: list[list[TableCell | None]] | None = None,
+        table_id: str = "p3_t1",
+    ) -> list[dict[str, Any]]:
+        cells = cells or []
         header_index = find_row_index(rows, lambda row: row and one_line(row[0]).lower().startswith("opn. no."))
         start = (header_index + 1) if header_index is not None else 9
         operations: list[dict[str, Any]] = []
@@ -754,6 +880,14 @@ class MeridianStructuredExtractionService:
                     "machine_cost_rs": parse_int(row[5] if len(row) > 5 else ""),
                     "no_of_cells": parse_int(row[6] if len(row) > 6 else ""),
                     "amount_rs": parse_int(row[7] if len(row) > 7 else ""),
+                    "_sources": {
+                        "description": src(table_id, cell_at(cells, index, 1)),
+                        "cycle_time_min": src(table_id, cell_at(cells, index, 3)),
+                        "machines_per_cell": src(table_id, cell_at(cells, index, 4)),
+                        "machine_cost_rs": src(table_id, cell_at(cells, index, 5)),
+                        "no_of_cells": src(table_id, cell_at(cells, index, 6)),
+                        "amount_rs": src(table_id, cell_at(cells, index, 7)),
+                    },
                 }
             )
         return operations

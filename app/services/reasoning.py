@@ -54,6 +54,8 @@ def _fields_to_prompt_payload(records: list[FieldProvenance]) -> str:
             item["note"] = "hardcoded default — explain what it means for the cost sheet"
         elif r.source_type == "derived":
             item["note"] = "calculated/derived value — explain the derivation logic"
+        elif r.source_type == "not_available":
+            item["note"] = "extracted from the document, exact location pending — explain what the field represents"
         items.append(item)
     return json.dumps(items, indent=2)
 
@@ -71,17 +73,15 @@ class BedrockReasoningService:
     def enrich(self, records: list[FieldProvenance], pdf_filename: str) -> list[FieldProvenance]:
         """Return a new list of records with `reason` replaced by LLM-generated text.
 
-        Fields with source_type "not_available" are skipped.
+        Every field is enriched — including "not_available" ones, since the LLM can
+        still explain what a field represents even when we lack an exact PDF location.
         Records are processed in batches of BATCH_SIZE to avoid large slow calls.
         """
-        to_enrich = [r for r in records if r.source_type != "not_available"]
-        skip = [r for r in records if r.source_type == "not_available"]
-
-        if not to_enrich:
+        if not records:
             return records
 
         reason_map: dict[str, str] = {}
-        batches = [to_enrich[i:i + BATCH_SIZE] for i in range(0, len(to_enrich), BATCH_SIZE)]
+        batches = [records[i:i + BATCH_SIZE] for i in range(0, len(records), BATCH_SIZE)]
 
         for batch in batches:
             prompt = _USER_TEMPLATE.format(
@@ -101,13 +101,12 @@ class BedrockReasoningService:
             except Exception as exc:
                 logger.warning("Bedrock batch failed (%d fields), skipping batch: %s", len(batch), exc)
 
-        enriched = [
+        return [
             r.model_copy(update={"reason": reason_map[r.excel_cell]})
             if r.excel_cell in reason_map
             else r
-            for r in to_enrich
+            for r in records
         ]
-        return enriched + skip
 
     @staticmethod
     def _parse_reasons(raw: str) -> list[dict]:

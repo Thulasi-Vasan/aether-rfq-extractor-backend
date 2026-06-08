@@ -7,25 +7,27 @@ def normalize(s: str) -> str:
 from typing import Any, Callable
 import re
 
-def _get_machine_val(r: Any, op_name: str, key: str) -> Any:
+def _get_machine_val(r: Any, op_name: str, key: str, return_source: bool = False) -> Any:
     if not hasattr(r, "pages") or not r.pages:
         return None
     page = r.pages[0]
     items = getattr(page, "output_machine_details", [])
     for item in items:
-        if isinstance(item, dict) and item.get("operation") == op_name:
-            return item.get(key)
-        elif hasattr(item, "operation") and getattr(item, "operation") == op_name:
-            return getattr(item, key, None)
+        op = item.get("operation") if isinstance(item, dict) else getattr(item, "operation", None)
+        if op == op_name:
+            return _item_out(item, key, return_source)
     return None
 
-def _get_testing_val(r: Any, key: str) -> Any:
+def _get_testing_val(r: Any, key: str, return_source: bool = False) -> Any:
     if not hasattr(r, "pages") or not r.pages:
         return None
     testing = getattr(r.pages[0], "testing_cost_details", {})
-    if isinstance(testing, dict):
-        return testing.get(key)
-    return getattr(testing, key, None)
+    if not isinstance(testing, dict):
+        testing = getattr(testing, "__dict__", {})
+    if return_source:
+        sources = testing.get("_sources", {})
+        return sources.get(key) if isinstance(sources, dict) else None
+    return testing.get(key)
 
 def _get_power_val(r: Any, key: str) -> Any:
     if not hasattr(r, "pages") or not r.pages:
@@ -61,13 +63,10 @@ def _get_header_val(r: Any, key: str) -> Any:
         return header.get(key)
     return getattr(header, key, None)
 
-def _get_casting_val(r: Any, key: str) -> Any:
+def _get_casting_val(r: Any, key: str, return_source: bool = False) -> Any:
     if not hasattr(r, "pages") or not r.pages:
         return None
-    casting = getattr(r.pages[0], "casting_cell_details", {})
-    if isinstance(casting, dict):
-        return casting.get(key)
-    return getattr(casting, key, None)
+    return _dict_out(getattr(r.pages[0], "casting_cell_details", {}), key, return_source)
 
 def _get_machining_header_val(r: Any, key: str) -> Any:
     if not hasattr(r, "pages") or len(r.pages) < 3:
@@ -77,33 +76,27 @@ def _get_machining_header_val(r: Any, key: str) -> Any:
         return header.get(key)
     return getattr(header, key, None)
 
-def _get_machining_cell_summary(r: Any, key: str) -> Any:
+def _get_machining_cell_summary(r: Any, key: str, return_source: bool = False) -> Any:
     if not hasattr(r, "pages") or len(r.pages) < 3:
         return None
-    summary = getattr(r.pages[2], "cell_summary", {})
-    if isinstance(summary, dict):
-        return summary.get(key)
-    return getattr(summary, key, None)
+    return _dict_out(getattr(r.pages[2], "cell_summary", {}), key, return_source)
 
-def _get_machining_resource(r: Any, key: str) -> Any:
+def _get_machining_resource(r: Any, key: str, return_source: bool = False) -> Any:
     if not hasattr(r, "pages") or len(r.pages) < 3:
         return None
-    res = getattr(r.pages[2], "resource_requirements", {})
-    if isinstance(res, dict):
-        return res.get(key)
-    return getattr(res, key, None)
+    return _dict_out(getattr(r.pages[2], "resource_requirements", {}), key, return_source)
 
-def _get_machining_op_val(r: Any, match_str: str, key: str) -> Any:
+def _get_machining_op_val(r: Any, match_str: str, key: str, return_source: bool = False) -> Any:
     if not hasattr(r, "pages") or len(r.pages) < 3: return None
     ops = getattr(r.pages[2], "machining_operations", [])
     if not isinstance(ops, list): return None
     for op in ops:
         desc = op.get("description", "") if isinstance(op, dict) else getattr(op, "description", "")
         if normalize(match_str) in normalize(desc) or normalize(desc) in normalize(match_str):
-            return op.get(key) if isinstance(op, dict) else getattr(op, key, None)
+            return _item_out(op, key, return_source)
     return None
 
-def _get_machining_op_cost(r: Any, match_str: str, key: str) -> Any:
+def _get_machining_op_cost(r: Any, match_str: str, key: str, return_source: bool = False) -> Any:
     if not hasattr(r, "pages") or len(r.pages) < 3: return None
     op_costs = getattr(r.pages[2], "operating_costs", [])
     if not isinstance(op_costs, list): return None
@@ -111,7 +104,7 @@ def _get_machining_op_cost(r: Any, match_str: str, key: str) -> Any:
         for item in (cat.get("items", []) if isinstance(cat, dict) else []):
             desc = item.get("description", "") if isinstance(item, dict) else getattr(item, "description", "")
             if normalize(match_str) in normalize(desc) or normalize(desc) in normalize(match_str):
-                return item.get(key) if isinstance(item, dict) else getattr(item, key, None)
+                return _item_out(item, key, return_source)
     return None
 
 def _get_assembly_val(r: Any, top_key: str, sub_key: str | None, key: str) -> Any:
@@ -540,7 +533,25 @@ def set_cell_value(sheet, coord: str, value: Any):
     else:
         cell.value = value
 
-def _get_cap_val(r: Any, match_str: str, key: str) -> Any:
+def _item_out(item: Any, key: str, return_source: bool) -> Any:
+    """Return either the value at `key` or its provenance source (_sources[key])."""
+    if return_source:
+        sources = item.get("_sources", {}) if isinstance(item, dict) else getattr(item, "_sources", {})
+        return sources.get(key) if isinstance(sources, dict) else None
+    return item.get(key) if isinstance(item, dict) else getattr(item, key, None)
+
+
+def _dict_out(d: Any, key: str, return_source: bool) -> Any:
+    """Like _item_out, for a dict-shaped section (cell_summary, casting, ...)."""
+    if not isinstance(d, dict):
+        d = getattr(d, "__dict__", {})
+    if return_source:
+        sources = d.get("_sources", {})
+        return sources.get(key) if isinstance(sources, dict) else None
+    return d.get(key)
+
+
+def _get_cap_val(r: Any, match_str: str, key: str, return_source: bool = False) -> Any:
     if not hasattr(r, "pages") or not r.pages: return None
     normalized_match = normalize(match_str)
     candidates = []
@@ -549,28 +560,27 @@ def _get_cap_val(r: Any, match_str: str, key: str) -> Any:
             desc = item.get("description", "") if isinstance(item, dict) else getattr(item, "description", "")
             normalized_desc = normalize(desc)
             if normalized_desc == normalized_match:
-                return item.get(key) if isinstance(item, dict) else getattr(item, key, None)
+                return _item_out(item, key, return_source)
             if normalized_match in normalized_desc or normalized_desc in normalized_match:
                 candidates.append(item)
     if candidates:
-        item = candidates[0]
-        return item.get(key) if isinstance(item, dict) else getattr(item, key, None)
+        return _item_out(candidates[0], key, return_source)
     return None
 
-def _get_op_val(r: Any, match_str: str, key: str) -> Any:
+def _get_op_val(r: Any, match_str: str, key: str, return_source: bool = False) -> Any:
     if not hasattr(r, "pages") or not r.pages: return None
     for cat in getattr(r.pages[0], "operating_costs", []):
         for item in (cat.get("items", []) if isinstance(cat, dict) else []):
             desc = item.get("description", "") if isinstance(item, dict) else getattr(item, "description", "")
             if normalize(match_str) in normalize(desc) or normalize(desc) in normalize(match_str):
-                return item.get(key) if isinstance(item, dict) else getattr(item, key, None)
+                return _item_out(item, key, return_source)
 
     die = getattr(r.pages[0], "die_details", {})
     die_ops = die.get("operating_items", []) if isinstance(die, dict) else getattr(die, "operating_items", [])
     for item in die_ops:
         desc = item.get("description", "") if isinstance(item, dict) else getattr(item, "description", "")
         if normalize(match_str) in normalize(desc) or normalize(desc) in normalize(match_str):
-            return item.get(key) if isinstance(item, dict) else getattr(item, key, None)
+            return _item_out(item, key, return_source)
     return None
 
 
@@ -873,6 +883,84 @@ CELL_SOURCE_TYPES: dict[str, str] = {
     "X52": "derived",
     "AI51": "derived",
 }
+
+
+# ---------------------------------------------------------------------------
+# Provenance source mapping (coord -> callable returning the value's _sources entry)
+#
+# Rather than hand-maintaining a parallel mapping (which drifts from the value
+# lambdas above), we DERIVE it from those same lambdas at import time. Every
+# category entry has the shape  "COORD": lambda r: _get_x(r, "MATCH", "KEY")  (or
+# a single "KEY" arg for testing). We parse that one line and build a matching
+# source-getter call with return_source=True, so value and source stay in lockstep.
+# ---------------------------------------------------------------------------
+_SOURCE_GETTERS: dict[str, Callable] = {
+    "_get_cap_val": _get_cap_val,
+    "_get_op_val": _get_op_val,
+    "_get_machine_val": _get_machine_val,
+    "_get_testing_val": _get_testing_val,
+    "_get_machining_op_val": _get_machining_op_val,
+    "_get_machining_op_cost": _get_machining_op_cost,
+    "_get_casting_val": _get_casting_val,
+    "_get_machining_cell_summary": _get_machining_cell_summary,
+    "_get_machining_resource": _get_machining_resource,
+}
+
+_SOURCE_LINE_RE = re.compile(
+    r'"(?P<coord>[A-Z]+\d+)":\s*lambda r:\s*'
+    r"(?P<getter>" + "|".join(_SOURCE_GETTERS) + r")"
+    r'\(r,\s*"(?P<a>(?:[^"\\]|\\.)*)"(?:,\s*"(?P<b>(?:[^"\\]|\\.)*)")?\)'
+)
+
+# Index-based machining-operation lambdas:
+#   "AQ18": lambda r: r.pages[2].machining_operations[0].get("description") ...
+_SOURCE_OP_INDEX_RE = re.compile(
+    r'"(?P<coord>[A-Z]+\d+)":\s*lambda r:\s*'
+    r'r\.pages\[2\]\.machining_operations\[(?P<idx>\d+)\]\.get\("(?P<key>\w+)"\)'
+)
+
+
+def _machining_op_index_source(r: Any, idx: int, key: str) -> Any:
+    """Source for a machining operation addressed by position (page 3)."""
+    if not hasattr(r, "pages") or len(r.pages) < 3:
+        return None
+    ops = getattr(r.pages[2], "machining_operations", [])
+    if not isinstance(ops, list) or idx >= len(ops):
+        return None
+    return _item_out(ops[idx], key, return_source=True)
+
+
+def _build_source_mapping() -> dict[str, Callable]:
+    from pathlib import Path
+
+    try:
+        text = Path(__file__).read_text()
+    except OSError:
+        return {}
+    mapping: dict[str, Callable] = {}
+    for match in _SOURCE_LINE_RE.finditer(text):
+        coord = match.group("coord")
+        if coord in mapping:
+            continue
+        getter = _SOURCE_GETTERS[match.group("getter")]
+        a, b = match.group("a"), match.group("b")
+        if b is None:
+            # single-arg getter (testing): `a` is the value key, no match string
+            mapping[coord] = (lambda r, g=getter, k=a: g(r, k, return_source=True))
+        else:
+            mapping[coord] = (lambda r, g=getter, m=a, k=b: g(r, m, k, return_source=True))
+    for match in _SOURCE_OP_INDEX_RE.finditer(text):
+        coord = match.group("coord")
+        if coord in mapping:
+            continue
+        mapping[coord] = (
+            lambda r, i=int(match.group("idx")), k=match.group("key"): _machining_op_index_source(r, i, k)
+        )
+    return mapping
+
+
+# coord -> callable(extraction) -> {"table_id", "row", "col"} | None
+EXCEL_SOURCE_MAPPING: dict[str, Callable] = _build_source_mapping()
 
 
 
