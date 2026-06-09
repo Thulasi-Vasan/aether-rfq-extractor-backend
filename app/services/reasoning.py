@@ -22,6 +22,7 @@ populated into a cost sheet from a PDF document.
 For each field, write ONE clear, concise sentence (max 20 words) explaining:
 - where the value came from in the document (page, section, or table name if known), and
 - what the field represents in plain business language.
+Some fields have no value; for those, explain why the value is missing or what must be provided.
 
 Do NOT repeat the value itself in the reason.
 Do NOT use technical jargon like "row_index" or "col_index".
@@ -56,6 +57,21 @@ def _fields_to_prompt_payload(records: list[FieldProvenance]) -> str:
             item["note"] = "calculated/derived value — explain the derivation logic"
         elif r.source_type == "not_available":
             item["note"] = "extracted from the document, exact location pending — explain what the field represents"
+        elif r.source_type == "null":
+            notes = {
+                "data_absent": "field was blank in the source document — explain what the engineer must provide",
+                "derived_dependency_missing": "cannot be computed because a dependency is missing — explain the dependency",
+                "page_missing": "source page was not included in the PDF — explain what the field represents",
+                "extraction_failure": "source page could not be parsed automatically — explain what the field represents",
+                "not_applicable": "section does not apply to this product/use-case — explain why it is intentionally empty",
+                "unclear_logic": "population logic is pending finance-team input — explain what the field represents",
+            }
+            item["null_category"] = r.null_category
+            item["blocks_approval"] = r.blocks_approval
+            item["note"] = notes.get(
+                r.null_category,
+                "field has no value — explain what is missing",
+            )
         items.append(item)
     return json.dumps(items, indent=2)
 

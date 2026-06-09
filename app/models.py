@@ -135,7 +135,15 @@ class ReferenceDocumentResponse(BaseModel):
     message: str | None = None
 
 
-SourceType = Literal["pdf_cell", "derived", "default", "inferred", "not_available"]
+SourceType = Literal["pdf_cell", "derived", "default", "inferred", "not_available", "null"]
+NullCategory = Literal[
+    "data_absent",
+    "derived_dependency_missing",
+    "page_missing",
+    "extraction_failure",
+    "not_applicable",
+    "unclear_logic",
+]
 
 
 class FieldProvenance(BaseModel):
@@ -145,6 +153,8 @@ class FieldProvenance(BaseModel):
     value: Any
     source_type: SourceType
     reason: str
+    null_category: NullCategory | None = None
+    blocks_approval: bool = False
     pdf_filename: str | None = None
     page_number: int | None = None
     table_index: int | None = None

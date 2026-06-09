@@ -1,3 +1,4 @@
+import logging
 import re
 
 def normalize(s: str) -> str:
@@ -5,7 +6,8 @@ def normalize(s: str) -> str:
     return re.sub(r"[^a-zA-Z0-9]+", "", s).lower()
 
 from typing import Any, Callable
-import re
+
+logger = logging.getLogger(__name__)
 
 def _get_machine_val(r: Any, op_name: str, key: str, return_source: bool = False) -> Any:
     if not hasattr(r, "pages") or not r.pages:
@@ -28,6 +30,14 @@ def _get_testing_val(r: Any, key: str, return_source: bool = False) -> Any:
         sources = testing.get("_sources", {})
         return sources.get(key) if isinstance(sources, dict) else None
     return testing.get(key)
+
+def _yn(value: Any) -> str | None:
+    if value is True:
+        return "Y"
+    if value is False:
+        return "N"
+    return None
+
 
 def _get_power_val(r: Any, key: str) -> Any:
     if not hasattr(r, "pages") or not r.pages:
@@ -304,14 +314,14 @@ EXCEL_MAPPING: dict[str, Callable[[Any], Any]] = {
     "X27": lambda r: _get_assembly_val(r, "assembly_resource_requirements", None, "sealant_consumption_per_part_ml"),
     "W28": lambda r: _get_assembly_val(r, "assembly_resource_requirements", None, "power_rating_kw_hr"),
     "X28": lambda r: _get_assembly_val(r, "assembly_resource_requirements", None, "power_rating_kw_hr"),
-    "W29": lambda r: "Y" if _get_assembly_val(r, "assembly_resource_requirements", None, "feasible_to_use_machining_operator_for_assembly") else "N",
-    "X29": lambda r: "Y" if _get_assembly_val(r, "assembly_resource_requirements", None, "feasible_to_use_machining_operator_for_assembly") else "N",
+    "W29": lambda r: _yn(_get_assembly_val(r, "assembly_resource_requirements", None, "feasible_to_use_machining_operator_for_assembly")),
+    "X29": lambda r: _yn(_get_assembly_val(r, "assembly_resource_requirements", None, "feasible_to_use_machining_operator_for_assembly")),
     "W30": lambda r: _get_assembly_val(r, "assembly_resource_requirements", None, "manpower_per_shift_per_cell"),
     "X30": lambda r: _get_assembly_val(r, "assembly_resource_requirements", None, "manpower_per_shift_per_cell"),
     "W31": lambda r: _get_assembly_val(r, "assembly_resource_requirements", None, "floor_space_required_sq_m_per_cell"),
     "X31": lambda r: _get_assembly_val(r, "assembly_resource_requirements", None, "floor_space_required_sq_m_per_cell"),
-    "W33": lambda r: "Y" if _get_assembly_val(r, "after_assembly_machining", None, "involved") else "N",
-    "X33": lambda r: "Y" if _get_assembly_val(r, "after_assembly_machining", None, "involved") else "N",
+    "W33": lambda r: _yn(_get_assembly_val(r, "after_assembly_machining", None, "involved")),
+    "X33": lambda r: _yn(_get_assembly_val(r, "after_assembly_machining", None, "involved")),
     # After Assembly Machining Cost details
     "W35": lambda r: _get_assembly_investment(r, "after_assembly_machining", "Vertical M/cng Center", "capex_rs"),
     "X35": lambda r: _get_assembly_investment(r, "after_assembly_machining", "Vertical M/cng Center", "operating_rs"),
@@ -340,8 +350,8 @@ EXCEL_MAPPING: dict[str, Callable[[Any], Any]] = {
     # After Assembly Resource Reqs
     "W51": lambda r: _get_assembly_val(r, "after_assembly_machining", "resource_requirements", "power_rating_kw_hr"),
     "X51": lambda r: _get_assembly_val(r, "after_assembly_machining", "resource_requirements", "power_rating_kw_hr"),
-    "W52": lambda r: "Y" if _get_assembly_val(r, "after_assembly_machining", "resource_requirements", "feasible_to_use_machining_cell_operator") else "N",
-    "X52": lambda r: "Y" if _get_assembly_val(r, "after_assembly_machining", "resource_requirements", "feasible_to_use_machining_cell_operator") else "N",
+    "W52": lambda r: _yn(_get_assembly_val(r, "after_assembly_machining", "resource_requirements", "feasible_to_use_machining_cell_operator")),
+    "X52": lambda r: _yn(_get_assembly_val(r, "after_assembly_machining", "resource_requirements", "feasible_to_use_machining_cell_operator")),
     "W53": lambda r: _get_assembly_val(r, "after_assembly_machining", "resource_requirements", "manpower_per_shift_per_cell"),
     "X53": lambda r: _get_assembly_val(r, "after_assembly_machining", "resource_requirements", "manpower_per_shift_per_cell"),
     "W54": lambda r: _get_assembly_val(r, "after_assembly_machining", "resource_requirements", "floor_space_required_sq_m_per_cell"),
@@ -358,7 +368,7 @@ EXCEL_MAPPING: dict[str, Callable[[Any], Any]] = {
     "AI48": lambda r: _get_machining_resource(r, "man_power_per_shift_per_cell"),
     "AI49": lambda r: _get_machining_resource(r, "floor_area_required_per_cell_sq_m"),
     "AI50": lambda r: _get_machining_resource(r, "imp_salvaging_percent"),
-    "AI51": lambda r: "Y" if _get_machining_resource(r, "setup_changeover_considered") else "N",
+    "AI51": lambda r: _yn(_get_machining_resource(r, "setup_changeover_considered")),
     "AI52": lambda r: _get_machining_resource(r, "no_of_variants_planned_per_cell"),
     # Machining Operating Costs in AD and AR columns
     "AD42": lambda r: _get_machining_op_cost(r, "Cost of Cutting tools", "amount_rs"),
@@ -963,5 +973,102 @@ def _build_source_mapping() -> dict[str, Callable]:
 EXCEL_SOURCE_MAPPING: dict[str, Callable] = _build_source_mapping()
 
 
+DERIVED_DEPENDENCIES: dict[str, Callable[[Any], Any]] = {
+    "G5": lambda r: _get_header_val(r, "annual_volume_nos"),
+}
+
+BLOCKING_CATEGORIES = {
+    "data_absent",
+    "derived_dependency_missing",
+    "page_missing",
+    "extraction_failure",
+}
 
 
+# ---------------------------------------------------------------------------
+# Cell page mapping (coord -> source PDF page number)
+#
+# This is also derived from EXCEL_MAPPING's lambdas at import time so it stays
+# aligned with the value getters. Defaults intentionally map to None because
+# they do not come from a PDF page.
+# ---------------------------------------------------------------------------
+_PAGE_BY_HELPER: dict[str, int] = {
+    "_get_cap_val": 1,
+    "_get_op_val": 1,
+    "_get_machine_val": 1,
+    "_get_testing_val": 1,
+    "_get_header_val": 1,
+    "_get_power_val": 1,
+    "_get_die_val": 1,
+    "_get_die_life": 1,
+    "_get_casting_val": 1,
+    "_get_machining_op_val": 3,
+    "_get_machining_op_cost": 3,
+    "_get_machining_cell_summary": 3,
+    "_get_machining_resource": 3,
+    "_get_machining_header_val": 3,
+    "_get_assembly_val": 5,
+    "_get_assembly_investment": 5,
+}
+
+_MAPPING_LINE_RE = re.compile(r'^\s*"(?P<coord>[A-Z]+\d+)":\s*lambda r:\s*(?P<body>.+),?\s*$')
+_DIRECT_PAGE_RE = re.compile(r"r\.pages\[(?P<index>\d+)\]")
+
+
+def _page_for_lambda_body(body: str) -> int | None:
+    direct_page = _DIRECT_PAGE_RE.search(body)
+    if direct_page:
+        return int(direct_page.group("index")) + 1
+    for helper, page in _PAGE_BY_HELPER.items():
+        if helper in body:
+            return page
+    return None
+
+
+def _build_cell_page_mapping() -> dict[str, int | None]:
+    from pathlib import Path
+
+    try:
+        text = Path(__file__).read_text()
+    except OSError:
+        return {}
+    mapping: dict[str, int | None] = {}
+    for line in text.splitlines():
+        match = _MAPPING_LINE_RE.match(line)
+        if not match:
+            continue
+        coord = match.group("coord")
+        if coord in mapping:
+            continue
+        if CELL_SOURCE_TYPES.get(coord) == "default":
+            mapping[coord] = None
+            continue
+        mapping[coord] = _page_for_lambda_body(match.group("body"))
+    return mapping
+
+
+CELL_PAGE: dict[str, int | None] = _build_cell_page_mapping()
+
+
+def _check_coverage() -> None:
+    missing_pages = [
+        coord
+        for coord in EXCEL_MAPPING
+        if CELL_SOURCE_TYPES.get(coord) != "default" and coord not in CELL_PAGE
+    ]
+    unresolved_pages = [
+        coord
+        for coord, page in CELL_PAGE.items()
+        if CELL_SOURCE_TYPES.get(coord) != "default" and page is None
+    ]
+    if missing_pages or unresolved_pages:
+        logger.warning(
+            "CELL_PAGE coverage issue: %d missing, %d unresolved. Missing sample=%s unresolved sample=%s",
+            len(missing_pages),
+            len(unresolved_pages),
+            missing_pages[:10],
+            unresolved_pages[:10],
+        )
+
+
+_check_coverage()
