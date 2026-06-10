@@ -984,6 +984,16 @@ BLOCKING_CATEGORIES = {
     "extraction_failure",
 }
 
+# Maps expected page number → the anchor table ID that proves the page was present
+# and parseable. Checking table IDs (content-based) survives PDF page renumbering —
+# if a page is removed, the remaining pages renumber but the table ID won't exist.
+PAGE_ANCHOR_TABLES: dict[int, str] = {
+    1: "p1_t1",
+    3: "p3_t1",
+    5: "p5_t1",
+    7: "p7_t1",
+}
+
 
 # ---------------------------------------------------------------------------
 # Cell page mapping (coord -> source PDF page number)
