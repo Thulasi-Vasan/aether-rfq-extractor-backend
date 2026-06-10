@@ -110,6 +110,7 @@ class MeridianStructuredPage(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     page_number: int
+    physical_page_number: int | None = None
     page_type: str
     title: str | None = None
     header: dict[str, Any] = Field(default_factory=dict)

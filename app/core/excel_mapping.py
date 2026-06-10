@@ -1009,7 +1009,7 @@ PAGE_CONTENT_FIELD: dict[str, str] = {
     "gdc_estimation": "capital_investments",
     "machining_estimation": "machining_operations",
     "assembly_estimation": "assembly_resource_requirements",
-    "packing_estimation": "packing_arrangements",
+    "packing_estimation": "packing_box_quantity_working",
 }
 
 

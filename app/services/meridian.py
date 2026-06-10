@@ -351,6 +351,27 @@ def reverse_vertical_label(value: str | None) -> str:
 
 
 class MeridianStructuredExtractionService:
+    PAGE_TITLE_SIGNATURES: dict[int, str] = {
+        1: "ESTIMATION FOR GRAVITY DIE CASTING",
+        3: "ESTIMATION FOR MACHINING",
+        4: "PROCESS PLANNING SHEET",
+        5: "ESTIMATION FOR ASSEMBLY",
+        6: "RFQ REMARKS",
+        7: "ESTIMATION FOR PACKING",
+    }
+    PAGE_TYPES: dict[int, str] = {
+        1: "gdc_estimation",
+        2: "die_design_feasibility",
+        3: "machining_estimation",
+        4: "machining_process_planning",
+        5: "assembly_estimation",
+        6: "rfq_remarks",
+        7: "packing_estimation",
+    }
+
+    def __init__(self) -> None:
+        self._page_resolution_warnings: list[ExtractionWarning] = []
+
     def build(
         self,
         extraction: DocumentExtraction,
@@ -359,17 +380,32 @@ class MeridianStructuredExtractionService:
         include_raw: bool = False,
     ) -> MeridianExtractionResponse:
         raw_text_by_page = self._extract_raw_text(pdf_path) if include_raw and pdf_path and pdf_path.exists() else {}
+        page_map = self._resolve_page_map(extraction)
         pages = [
-            self._page_1(extraction, raw_text_by_page.get(1, "")),
-            self._page_2(extraction, raw_text_by_page.get(2, "")),
-            self._page_3(extraction, raw_text_by_page.get(3, "")),
-            self._page_4(extraction, raw_text_by_page.get(4, "")),
-            self._page_5(extraction, raw_text_by_page.get(5, "")),
-            self._page_6(extraction, raw_text_by_page.get(6, "")),
-            self._page_7(extraction, raw_text_by_page.get(7, "")),
+            self._page_1(extraction, raw_text_by_page.get(page_map.get(1), ""), page_map.get(1)),
+            self._page_2(extraction, raw_text_by_page.get(page_map.get(2), ""), page_map.get(2)),
+            self._page_3(extraction, raw_text_by_page.get(page_map.get(3), ""), page_map.get(3)),
+            self._page_4(extraction, raw_text_by_page.get(page_map.get(4), ""), page_map.get(4)),
+            self._page_5(extraction, raw_text_by_page.get(page_map.get(5), ""), page_map.get(5)),
+            self._page_6(extraction, raw_text_by_page.get(page_map.get(6), ""), page_map.get(6)),
+            self._page_7(extraction, raw_text_by_page.get(page_map.get(7), ""), page_map.get(7)),
         ]
         pages = [self._apply_raw_policy(page, include_raw=include_raw) for page in pages]
-        warnings = [warning for page in pages for warning in page.warnings]
+        missing_page_warnings = [
+            warning(
+                "meridian_page_not_found",
+                f"{self.PAGE_TYPES[logical_page]} page not found in the uploaded PDF.",
+                logical_page,
+                {"logical_page": logical_page, "page_type": self.PAGE_TYPES[logical_page]},
+            )
+            for logical_page in range(1, 8)
+            if logical_page not in page_map
+        ]
+        warnings = [
+            *self._page_resolution_warnings,
+            *missing_page_warnings,
+            *[warning for page in pages for warning in page.warnings],
+        ]
         return MeridianExtractionResponse(
             document_id=extraction.document_id,
             filename=extraction.filename,
@@ -378,6 +414,49 @@ class MeridianStructuredExtractionService:
             raw_tables=extraction.tables if include_raw else [],
             warnings=[*extraction.warnings, *warnings],
         )
+
+    def _resolve_page_map(self, extraction: DocumentExtraction) -> dict[int, int]:
+        self._page_resolution_warnings = []
+        page_map: dict[int, int] = {}
+
+        titles_by_physical_page: dict[int, list[str]] = {}
+        for table in extraction.tables:
+            if not table.title:
+                continue
+            titles_by_physical_page.setdefault(table.page_number, []).append(table.title.upper())
+
+        for physical_page in range(1, extraction.page_count + 1):
+            titles = titles_by_physical_page.get(physical_page, [])
+            for logical_page, signature in self.PAGE_TITLE_SIGNATURES.items():
+                if not any(signature in title for title in titles):
+                    continue
+                if logical_page in page_map:
+                    self._page_resolution_warnings.append(
+                        warning(
+                            "duplicate_meridian_page_signature",
+                            f"Duplicate Meridian page signature matched logical page {logical_page}; first physical page was kept.",
+                            logical_page,
+                            {
+                                "logical_page": logical_page,
+                                "kept_physical_page": page_map[logical_page],
+                                "ignored_physical_page": physical_page,
+                                "signature": signature,
+                            },
+                        )
+                    )
+                    continue
+                page_map[logical_page] = physical_page
+
+        assigned_physical_pages = set(page_map.values())
+        unassigned_physical_pages = [
+            page_number
+            for page_number in range(1, extraction.page_count + 1)
+            if page_number not in assigned_physical_pages
+        ]
+        if 2 not in page_map and len(unassigned_physical_pages) == 1:
+            page_map[2] = unassigned_physical_pages[0]
+
+        return page_map
 
     def _apply_raw_policy(self, page: MeridianStructuredPage, *, include_raw: bool) -> MeridianStructuredPage:
         source_refs = [
@@ -409,11 +488,18 @@ class MeridianStructuredExtractionService:
     def _table(self, extraction: DocumentExtraction, table_id: str) -> ExtractedTable | None:
         return next((table for table in extraction.tables if table.table_id == table_id), None)
 
-    def _page_tables(self, extraction: DocumentExtraction, page_number: int) -> list[ExtractedTable]:
+    def _page_tables(self, extraction: DocumentExtraction, page_number: int | None) -> list[ExtractedTable]:
+        if page_number is None:
+            return []
         return [table for table in extraction.tables if table.page_number == page_number]
 
-    def _page_1(self, extraction: DocumentExtraction, raw_text: str) -> MeridianStructuredPage:
-        table = self._table(extraction, "p1_t1")
+    def _physical_table(self, extraction: DocumentExtraction, physical_page: int | None, suffix: int) -> ExtractedTable | None:
+        if physical_page is None:
+            return None
+        return self._table(extraction, f"p{physical_page}_t{suffix}")
+
+    def _page_1(self, extraction: DocumentExtraction, raw_text: str, physical_page: int | None) -> MeridianStructuredPage:
+        table = self._physical_table(extraction, physical_page, 1)
         rows = matrix(table)
         cells = matrix_cells(table)
         tid = table.table_id if table else "p1_t1"
@@ -504,6 +590,7 @@ class MeridianStructuredExtractionService:
 
         return MeridianStructuredPage(
             page_number=1,
+            physical_page_number=physical_page,
             page_type="gdc_estimation",
             title="SCL-PED RFQ ESTIMATION FOR GRAVITY DIE CASTING (GDC)",
             header=header,
@@ -519,7 +606,7 @@ class MeridianStructuredExtractionService:
             power_rating_details=power_rating_details,
             assumptions_notes=self._page_1_assumptions(rows),
             approval=approval,
-            raw_tables=self._page_tables(extraction, 1),
+            raw_tables=self._page_tables(extraction, physical_page),
             raw_text=raw_text,
             warnings=page_warnings,
         )
@@ -683,16 +770,17 @@ class MeridianStructuredExtractionService:
             "shot_blasting": one_line(cell(rows, 63, 10)),
         }
 
-    def _page_2(self, extraction: DocumentExtraction, raw_text: str) -> MeridianStructuredPage:
+    def _page_2(self, extraction: DocumentExtraction, raw_text: str, physical_page: int | None) -> MeridianStructuredPage:
         return MeridianStructuredPage(
             page_number=2,
+            physical_page_number=physical_page,
             page_type="die_design_feasibility",
             title="CostEstimation - Die Design",
             header={},
             source_type="image_only",
             ocr_required=True,
             implementation_status="deferred",
-            raw_tables=self._page_tables(extraction, 2),
+            raw_tables=self._page_tables(extraction, physical_page),
             raw_text=raw_text,
             warnings=[
                 warning(
@@ -703,15 +791,15 @@ class MeridianStructuredExtractionService:
             ],
         )
 
-    def _page_3(self, extraction: DocumentExtraction, raw_text: str) -> MeridianStructuredPage:
-        main = self._table(extraction, "p3_t1")
+    def _page_3(self, extraction: DocumentExtraction, raw_text: str, physical_page: int | None) -> MeridianStructuredPage:
+        main = self._physical_table(extraction, physical_page, 1)
         rows = matrix(main)
         main_cells = matrix_cells(main)
         main_tid = main.table_id if main else "p3_t1"
-        table_top = self._table(extraction, "p3_t2")
-        table_bottom = self._table(extraction, "p3_t5")
-        table_summary = self._table(extraction, "p3_t3")
-        table_resource = self._table(extraction, "p3_t4")
+        table_top = self._physical_table(extraction, physical_page, 2)
+        table_bottom = self._physical_table(extraction, physical_page, 5)
+        table_summary = self._physical_table(extraction, physical_page, 3)
+        table_resource = self._physical_table(extraction, physical_page, 4)
         operating_top = matrix(table_top)
         cell_summary_rows = matrix(table_summary)
         summary_cells = matrix_cells(table_summary)
@@ -748,6 +836,7 @@ class MeridianStructuredExtractionService:
 
         return MeridianStructuredPage(
             page_number=3,
+            physical_page_number=physical_page,
             page_type="machining_estimation",
             title="SCL-PED RFQ Estimation for Machining",
             header={
@@ -815,7 +904,7 @@ class MeridianStructuredExtractionService:
                 "revision_date": "2014-10-29",
                 "classification": "Confidential",
             },
-            raw_tables=self._page_tables(extraction, 3),
+            raw_tables=self._page_tables(extraction, physical_page),
             raw_text=raw_text,
             warnings=page_warnings,
         )
@@ -896,10 +985,11 @@ class MeridianStructuredExtractionService:
         assumptions_row = next((row for row in rows if row and one_line(row[0]).lower().startswith("assumptions/ notes")), [])
         return parse_numbered_notes(assumptions_row[0] if assumptions_row else "")
 
-    def _page_4(self, extraction: DocumentExtraction, raw_text: str) -> MeridianStructuredPage:
-        rows = matrix(self._table(extraction, "p4_t1"))
+    def _page_4(self, extraction: DocumentExtraction, raw_text: str, physical_page: int | None) -> MeridianStructuredPage:
+        rows = matrix(self._physical_table(extraction, physical_page, 1))
         return MeridianStructuredPage(
             page_number=4,
+            physical_page_number=physical_page,
             page_type="machining_process_planning",
             title="SCL-PED RFQ Process Planning Sheet",
             header={
@@ -927,7 +1017,7 @@ class MeridianStructuredExtractionService:
                     "deferred_reason": "Process sequence content is visual/layout-heavy and requires OCR or vision LLM extraction.",
                 }
             ],
-            raw_tables=self._page_tables(extraction, 4),
+            raw_tables=self._page_tables(extraction, physical_page),
             raw_text=raw_text,
             warnings=[
                 warning("process_sequence_deferred", "Page 4 process sequence requires layout-aware OCR or vision LLM extraction and is deferred in this deterministic pass.", 4),
@@ -949,8 +1039,8 @@ class MeridianStructuredExtractionService:
             "image_present": True,
         }
 
-    def _page_5(self, extraction: DocumentExtraction, raw_text: str) -> MeridianStructuredPage:
-        rows = matrix(self._table(extraction, "p5_t1"))
+    def _page_5(self, extraction: DocumentExtraction, raw_text: str, physical_page: int | None) -> MeridianStructuredPage:
+        rows = matrix(self._physical_table(extraction, physical_page, 1))
         page_warnings: list[ExtractionWarning] = []
         lbh_raw = cell(rows, 5, 3)
         lbh = parse_lbh(lbh_raw)
@@ -977,6 +1067,7 @@ class MeridianStructuredExtractionService:
 
         return MeridianStructuredPage(
             page_number=5,
+            physical_page_number=physical_page,
             page_type="assembly_estimation",
             title="SCL-PED RFQ ESTIMATION FOR ASSEMBLY",
             header={
@@ -1030,7 +1121,7 @@ class MeridianStructuredExtractionService:
                 "classification": "Confidential",
                 "extraction_status": "fallback_defaults",
             },
-            raw_tables=self._page_tables(extraction, 5),
+            raw_tables=self._page_tables(extraction, physical_page),
             raw_text=raw_text,
             warnings=page_warnings,
         )
@@ -1122,11 +1213,11 @@ class MeridianStructuredExtractionService:
         match = re.search(r"\(ml\)\s*(.+)$", label, flags=re.IGNORECASE)
         return match.group(1).strip() if match else None
 
-    def _page_6(self, extraction: DocumentExtraction, raw_text: str) -> MeridianStructuredPage:
-        rows = matrix(self._table(extraction, "p6_t1"))
-        casting_rows = matrix(self._table(extraction, "p6_t2"))
-        machining_rows = matrix(self._table(extraction, "p6_t3"))
-        has_email_image = self._page_has_image(extraction, 6)
+    def _page_6(self, extraction: DocumentExtraction, raw_text: str, physical_page: int | None) -> MeridianStructuredPage:
+        rows = matrix(self._physical_table(extraction, physical_page, 1))
+        casting_rows = matrix(self._physical_table(extraction, physical_page, 2))
+        machining_rows = matrix(self._physical_table(extraction, physical_page, 3))
+        has_email_image = self._page_has_image(extraction, physical_page)
         remarks_sections, duplicate_count = self._page_6_remarks_sections(rows, casting_rows, machining_rows, has_email_image)
         email_evidence = (
             [
@@ -1170,6 +1261,7 @@ class MeridianStructuredExtractionService:
 
         return MeridianStructuredPage(
             page_number=6,
+            physical_page_number=physical_page,
             page_type="rfq_remarks",
             title="SCL-PED RFQ REMARKS",
             header={
@@ -1189,12 +1281,14 @@ class MeridianStructuredExtractionService:
             },
             remarks_sections=remarks_sections,
             email_evidence=email_evidence,
-            raw_tables=self._page_tables(extraction, 6),
+            raw_tables=self._page_tables(extraction, physical_page),
             raw_text=raw_text,
             warnings=page_warnings,
         )
 
-    def _page_has_image(self, extraction: DocumentExtraction, page_number: int) -> bool:
+    def _page_has_image(self, extraction: DocumentExtraction, page_number: int | None) -> bool:
+        if page_number is None:
+            return False
         page = next((page for page in extraction.pages if page.page_number == page_number), None)
         return bool(page and page.image_count > 0)
 
@@ -1297,8 +1391,8 @@ class MeridianStructuredExtractionService:
         key = re.sub(r"[^a-z0-9]+", "_", text.lower()).strip("_")
         return key or "other"
 
-    def _page_7(self, extraction: DocumentExtraction, raw_text: str) -> MeridianStructuredPage:
-        rows = matrix(self._table(extraction, "p7_t1"))
+    def _page_7(self, extraction: DocumentExtraction, raw_text: str, physical_page: int | None) -> MeridianStructuredPage:
+        rows = matrix(self._physical_table(extraction, physical_page, 1))
         page_warnings: list[ExtractionWarning] = []
         section_title = one_line(cell(rows, 7, 0))
         if "\n" in clean_text(cell(rows, 1, 2)) or "annual volume" in one_line(cell(rows, 1, 2)).lower():
@@ -1333,6 +1427,7 @@ class MeridianStructuredExtractionService:
             )
         return MeridianStructuredPage(
             page_number=7,
+            physical_page_number=physical_page,
             page_type="packing_estimation",
             title="SCL-PED RFQ ESTIMATION FOR PACKING 334",
             header={
@@ -1359,7 +1454,7 @@ class MeridianStructuredExtractionService:
                 "selected_arrangement_no": selected_arrangement_no,
                 "free_text_rows": self._page_7_free_text_rows(rows),
             },
-            raw_tables=self._page_tables(extraction, 7),
+            raw_tables=self._page_tables(extraction, physical_page),
             raw_text=raw_text,
             warnings=page_warnings,
         )

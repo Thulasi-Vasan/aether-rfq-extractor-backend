@@ -5,6 +5,7 @@ from openpyxl.styles import PatternFill
 
 from app.core.config import Settings
 from app.core.excel_mapping import (
+    CELL_PAGE,
     CELL_FIELD_KEYS,
     CELL_FIELD_LABELS,
     CELL_SOURCE_TYPES,
@@ -43,6 +44,10 @@ def _write_cell(sheet, coord: str, val) -> None:
 
 def _apply_null_fill(sheet, coord: str, is_blocking: bool) -> None:
     _apply_fill(sheet, coord, NULL_BLOCKING_FILL if is_blocking else NULL_INFO_FILL)
+
+
+def _is_missing_excel_value(val) -> bool:
+    return val is None or (isinstance(val, str) and val.strip() == "")
 
 
 def _load_workbook(template_path):
@@ -134,6 +139,7 @@ def _resolve_source_cell(
     static = FIELD_PROVENANCE_SOURCES.get(field_key)
     if static:
         table_id, row_idx, col_idx = static
+        table_id = _static_table_id_for_physical_page(coord, table_id, structured)
         table = next((t for t in doc_extraction.tables if t.table_id == table_id), None)
         if table:
             tc = cell_at(matrix_cells(table), row_idx, col_idx)
@@ -141,6 +147,24 @@ def _resolve_source_cell(
                 return table, row_idx, col_idx, tc
 
     return None
+
+
+def _static_table_id_for_physical_page(
+    coord: str,
+    table_id: str,
+    structured: MeridianExtractionResponse,
+) -> str:
+    logical_page = CELL_PAGE.get(coord)
+    if logical_page is None or "_" not in table_id:
+        return table_id
+
+    page = next((p for p in structured.pages if p.page_number == logical_page), None)
+    physical_page = getattr(page, "physical_page_number", None) if page else None
+    if physical_page is None:
+        return table_id
+
+    _, suffix = table_id.split("_", 1)
+    return f"p{physical_page}_{suffix}"
 
 
 def _build_provenance_record(
@@ -206,7 +230,9 @@ def _build_null_record(
     is_blocking = blocks_approval(category)
     reason = f"Value is missing; classified as {category}."
 
-    resolved = _resolve_source_cell(coord, field_key, structured, doc_extraction)
+    resolved = None
+    if category != "page_missing":
+        resolved = _resolve_source_cell(coord, field_key, structured, doc_extraction)
     if resolved:
         table, row_idx, col_idx, tc = resolved
         return _pdf_cell_record(
@@ -250,7 +276,7 @@ class ExcelExportService:
 
             for coord, extractor_func in EXCEL_MAPPING.items():
                 val = extractor_func(extraction)
-                if val is not None:
+                if not _is_missing_excel_value(val):
                     _write_cell(sheet, coord, val)
 
             _strip_sheet_extras(sheet)
@@ -274,7 +300,7 @@ class ExcelExportService:
 
             for coord, extractor_func in EXCEL_MAPPING.items():
                 val = extractor_func(extraction)
-                if val is not None:
+                if not _is_missing_excel_value(val):
                     _write_cell(sheet, coord, val)
                     prov = _build_provenance_record(coord, val, extraction, doc_extraction, pdf_filename)
                 else:
