@@ -59,12 +59,34 @@ def _fields_to_prompt_payload(records: list[FieldProvenance]) -> str:
             item["note"] = "extracted from the document, exact location pending — explain what the field represents"
         elif r.source_type == "null":
             notes = {
-                "data_absent": "field was blank in the source document — explain what the engineer must provide",
-                "derived_dependency_missing": "cannot be computed because a dependency is missing — explain the dependency",
-                "page_missing": "source page was not included in the PDF — explain what the field represents",
-                "extraction_failure": "source page could not be parsed automatically — explain what the field represents",
-                "not_applicable": "section does not apply to this product/use-case — explain why it is intentionally empty",
-                "unclear_logic": "population logic is pending finance-team input — explain what the field represents",
+                "data_absent": (
+                    "this field exists in the PDF but was left blank — explain what value "
+                    "is expected here and mention that the exact source cell location is "
+                    "available for the engineer to verify in the original document"
+                ),
+                "derived_dependency_missing": (
+                    "this value cannot be calculated because a field it depends on is also "
+                    "blank — explain what the upstream dependency is and what the engineer "
+                    "needs to provide first"
+                ),
+                "page_missing": (
+                    "the entire source page for this field was not found in the uploaded PDF "
+                    "— explain what section this field belongs to and that the document must "
+                    "be resubmitted with the missing page included"
+                ),
+                "extraction_failure": (
+                    "the source page exists in the PDF but could not be parsed automatically "
+                    "(likely a scanned or image-based page) — explain what this field "
+                    "represents and that manual entry is required"
+                ),
+                "not_applicable": (
+                    "this section does not apply to the current product or process — explain "
+                    "why it is intentionally empty for this use-case"
+                ),
+                "unclear_logic": (
+                    "the population logic for this field is pending input from the finance "
+                    "team — explain what this field represents and why it needs clarification"
+                ),
             }
             item["null_category"] = r.null_category
             item["blocks_approval"] = r.blocks_approval

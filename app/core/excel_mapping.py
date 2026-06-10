@@ -978,8 +978,6 @@ DERIVED_DEPENDENCIES: dict[str, Callable[[Any], Any]] = {
 }
 
 BLOCKING_CATEGORIES = {
-    "data_absent",
-    "derived_dependency_missing",
     "page_missing",
     "extraction_failure",
 }
@@ -992,6 +990,26 @@ PAGE_ANCHOR_TABLES: dict[int, str] = {
     3: "p3_t1",
     5: "p5_t1",
     7: "p7_t1",
+}
+
+# Maps page number → the page_type string that the structured JSON uses for that page.
+# Used by the classifier to detect a missing page by checking structured output content
+# rather than physical page numbers (which renumber when a page is removed from the PDF).
+CELL_PAGE_TYPE: dict[int, str] = {
+    1: "gdc_estimation",
+    3: "machining_estimation",
+    5: "assembly_estimation",
+    7: "packing_estimation",
+}
+
+# For each page_type, the page-specific field (not header) that proves this is
+# genuinely the right page. Header fields (rfq_no, customer) appear on every page
+# so they're unreliable when a page is removed and the next page renumbers in.
+PAGE_CONTENT_FIELD: dict[str, str] = {
+    "gdc_estimation": "capital_investments",
+    "machining_estimation": "machining_operations",
+    "assembly_estimation": "assembly_resource_requirements",
+    "packing_estimation": "packing_arrangements",
 }
 
 

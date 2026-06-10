@@ -119,16 +119,26 @@ def test_null_record_uses_blank_source_cell_bbox_when_locatable():
         tables=[_table_with_blank_static_cell()],
     )
 
-    record = _build_null_record(
-        "C2",
-        _structured_page_1({"rfq_no": None}),
-        doc_extraction,
-        "sample.pdf",
+    # Page 1 IS present — capital_investments proves real GDC content exists,
+    # but rfq_no (C2) was left blank in the PDF.
+    structured = MeridianExtractionResponse(
+        document_id="doc",
+        filename="sample.pdf",
+        page_count=1,
+        pages=[
+            MeridianStructuredPage(
+                page_number=1,
+                page_type="gdc_estimation",
+                header={"rfq_no": None, "customer": "CTT"},
+                capital_investments=[{"description": "Core shooting M/c"}],
+            )
+        ],
     )
+    record = _build_null_record("C2", structured, doc_extraction, "sample.pdf")
 
     assert record.source_type == "null"
     assert record.null_category == "data_absent"
-    assert record.blocks_approval is True
+    assert record.blocks_approval is False   # data_absent is informational, not blocking
     assert record.page_number == 1
     assert record.bbox == (10.0, 20.0, 30.0, 40.0)
 
@@ -159,8 +169,27 @@ def test_null_record_marks_present_unparseable_page_as_extraction_failure():
         pages=[_page_meta(1), _page_meta(2), _page_meta(3, "image_only")],
         tables=[],
     )
+    # Structured output includes a machining page with data so page is "present"
+    # but the raw extraction shows it's image_only → extraction_failure.
+    structured = MeridianExtractionResponse(
+        document_id="doc",
+        filename="sample.pdf",
+        page_count=3,
+        pages=[
+            MeridianStructuredPage(
+                page_number=1,
+                page_type="gdc_estimation",
+                header={"rfq_no": "123"},
+            ),
+            MeridianStructuredPage(
+                page_number=3,
+                page_type="machining_estimation",
+                header={"rfq_no": "123"},
+            ),
+        ],
+    )
 
-    record = _build_null_record("AQ18", _structured_page_1(), doc_extraction, "sample.pdf")
+    record = _build_null_record("AQ18", structured, doc_extraction, "sample.pdf")
 
     assert record.source_type == "null"
     assert record.null_category == "extraction_failure"
@@ -186,4 +215,4 @@ def test_null_record_marks_derived_dependency_missing():
 
     assert record.source_type == "null"
     assert record.null_category == "derived_dependency_missing"
-    assert record.blocks_approval is True
+    assert record.blocks_approval is False   # derived_dependency_missing is informational, not blocking
