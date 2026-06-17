@@ -107,7 +107,8 @@ def test_cell_page_covers_every_non_default_mapping():
     missing = [
         coord
         for coord in EXCEL_MAPPING
-        if CELL_SOURCE_TYPES.get(coord) != "default" and CELL_PAGE.get(coord) is None
+        if CELL_SOURCE_TYPES.get(coord) not in ("default", "unclear_logic")
+        and CELL_PAGE.get(coord) is None
     ]
 
     assert missing == []

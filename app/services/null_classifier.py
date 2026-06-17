@@ -4,6 +4,7 @@ from app.core.excel_mapping import (
     BLOCKING_CATEGORIES,
     CELL_PAGE,
     CELL_PAGE_TYPE,
+    CELL_SOURCE_TYPES,
     DERIVED_DEPENDENCIES,
     PAGE_CONTENT_FIELD,
 )
@@ -17,6 +18,9 @@ def classify_null_cell(
     structured: MeridianExtractionResponse,
     doc_extraction: DocumentExtraction,
 ) -> NullCategory:
+    if CELL_SOURCE_TYPES.get(coord) == "unclear_logic":
+        return "unclear_logic"
+
     dependency = DERIVED_DEPENDENCIES.get(coord)
     if dependency and dependency(structured) is None:
         return "derived_dependency_missing"

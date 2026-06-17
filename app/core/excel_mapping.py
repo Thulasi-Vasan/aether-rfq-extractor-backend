@@ -571,6 +571,14 @@ EXCEL_MAPPING: dict[str, Callable[[Any], Any]] = {
     "K53": lambda r: _get_cap_val(r, "Core placement fixture", "utilisation_percent"),
     "L53": lambda r: _get_cap_val(r, "Core placement fixture", "units"),
     "M53": lambda r: _get_cap_val(r, "Core placement fixture", "amount_per_cell_rs_lac"),
+    # HT Cost Calculation — finance team inputs, no PDF source
+    "G118": lambda r: None,
+    "G119": lambda r: None,
+    "G120": lambda r: None,
+    "G122": lambda r: None,
+    "G125": lambda r: None,
+    # Capex summary cross-sheet reference — not available in this sheet
+    "C102": lambda r: None,
 }
 
 def set_cell_value(sheet, coord: str, value: Any):
@@ -795,6 +803,9 @@ CELL_FIELD_KEYS: dict[str, str] = {
     "K51": "ht_furnace_utilisation", "L51": "ht_furnace_units", "M51": "ht_furnace_amount",
     "K52": "ht_batch_code_mc_utilisation", "L52": "ht_batch_code_mc_units", "M52": "ht_batch_code_mc_amount",
     "K53": "core_placement_fixture_utilisation", "L53": "core_placement_fixture_units", "M53": "core_placement_fixture_amount",
+    "G118": "ht_no_of_layers", "G119": "ht_parts_per_layer", "G120": "ht_parts_per_basket",
+    "G122": "ht_part_wt", "G125": "ht_batch_price",
+    "C102": "capex_as_per_project_details",
 }
 
 # Human-readable labels for the provenance panel UI.
@@ -957,6 +968,9 @@ CELL_FIELD_LABELS: dict[str, str] = {
     "K51": "Heat Treatment Furnace — Utilisation (%)", "L51": "Heat Treatment Furnace — Units", "M51": "Heat Treatment Furnace — Amount (₹ Lac)",
     "K52": "HT Batch Code Punching M/c — Utilisation (%)", "L52": "HT Batch Code Punching M/c — Units", "M52": "HT Batch Code Punching M/c — Amount (₹ Lac)",
     "K53": "Core Placement Fixture — Utilisation (%)", "L53": "Core Placement Fixture — Units", "M53": "Core Placement Fixture — Amount (₹ Lac)",
+    "G118": "HT — No. of Layers", "G119": "HT — Parts per Layer", "G120": "HT — Parts per Basket",
+    "G122": "HT — Part Weight", "G125": "HT — Batch Price",
+    "C102": "Capex as per Project Capex-Opex Details",
 }
 
 # Cells whose value is hardcoded or derived rather than read directly from a PDF cell.
@@ -971,6 +985,52 @@ CELL_SOURCE_TYPES: dict[str, str] = {
     "W52": "derived",
     "X52": "derived",
     "AI51": "derived",
+    # Fields not sourced from PDF or formula — require finance team input.
+    "G10": "unclear_logic",   # LBH Length (mm)
+    "G11": "unclear_logic",   # LBH Breadth (mm)
+    "G12": "unclear_logic",   # LBH Height (mm)
+    "K26": "unclear_logic",   # Crane to Handle Basket — Utilisation (%)
+    "K29": "unclear_logic",   # Vertical Machine — Utilisation (%)
+    "K41": "unclear_logic",   # Endoscope Machine — Utilisation (%)
+    "K44": "unclear_logic",   # Air Balancer — Utilisation (%)
+    "K47": "unclear_logic",   # Deflashing Station — Utilisation (%)
+    "K50": "unclear_logic",   # Melting Furnace Accessories — Utilisation (%)
+    "L17": "unclear_logic",   # Casting — Cavities
+    "L24": "unclear_logic",   # Core Painting Oven — Units
+    "L26": "unclear_logic",   # Crane to Handle Basket — Units
+    "L29": "unclear_logic",   # Vertical Machine — Units
+    "L30": "unclear_logic",   # Stand Type Machine — Units
+    "L31": "unclear_logic",   # Hydraulic Power Pack — Units
+    "L41": "unclear_logic",   # Endoscope Machine — Units
+    "L44": "unclear_logic",   # Air Balancer — Units
+    "L47": "unclear_logic",   # Deflashing Station — Units
+    "L50": "unclear_logic",   # Melting Furnace Accessories — Units
+    "M17": "unclear_logic",   # Casting — Cycle Time (min)
+    "M26": "unclear_logic",   # Crane to Handle Basket — Amount (₹ Lac)
+    "M29": "unclear_logic",   # Vertical Machine — Amount (₹ Lac)
+    "M41": "unclear_logic",   # Endoscope Machine — Amount (₹ Lac)
+    "M44": "unclear_logic",   # Air Balancer — Amount (₹ Lac)
+    "M47": "unclear_logic",   # Deflashing Station — Amount (₹ Lac)
+    "N68": "unclear_logic",   # Others Testing Cost/Part (₹)
+    "R64": "unclear_logic",   # Melting Furnace Capacity
+    "S17": "unclear_logic",   # Floor Space per Cell (sq.m)
+    "S25": "unclear_logic",   # Core Handling Stand (₹ Lac)
+    "S27": "unclear_logic",   # Core Visual Inspection / Table / Tools (₹ Lac)
+    "S39": "unclear_logic",   # Cell Formation Cost (₹ Lac)
+    "S40": "unclear_logic",   # Filing & Grinding Tools (₹ Lac)
+    "S62": "unclear_logic",   # Casting Cell Power (kW/hr)
+    "S64": "unclear_logic",   # Melting Furnace Power (kW/hr)
+    "W17": "unclear_logic",   # Assembly Station — Capex (₹)
+    "W18": "unclear_logic",   # Pokayoke System — Capex (₹)
+    "X17": "unclear_logic",   # Assembly Station — Operating (₹)
+    "X18": "unclear_logic",   # Pokayoke System — Operating (₹)
+    "AH36": "unclear_logic",  # Material Handling in Machine Shop (₹)
+    "G118": "unclear_logic",  # HT — No. of Layers
+    "G119": "unclear_logic",  # HT — Parts per Layer
+    "G120": "unclear_logic",  # HT — Parts per Basket
+    "G122": "unclear_logic",  # HT — Part Weight
+    "G125": "unclear_logic",  # HT — Batch Price
+    "C102": "unclear_logic",  # Capex as per Project Capex-Opex Details (cross-sheet, not available)
 }
 
 
