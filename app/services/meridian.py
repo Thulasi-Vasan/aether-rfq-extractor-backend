@@ -44,7 +44,13 @@ def parse_float(value: str | None) -> float | None:
 
 
 def parse_percent(value: str | None) -> float | None:
-    return parse_float(value)
+    text = clean_text(value)
+    parsed = parse_float(text)
+    if parsed is None:
+        return None
+    if "%" in text or parsed > 1:
+        return parsed / 100
+    return parsed
 
 
 def parse_bool(value: str | None) -> bool | None:

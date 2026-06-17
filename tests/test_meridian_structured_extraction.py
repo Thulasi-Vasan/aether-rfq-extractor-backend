@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 
 from app.models import DocumentExtraction, ExtractedTable, PageMetadata
-from app.services.meridian import MeridianStructuredExtractionService, parse_date, parse_int, parse_lbh
+from app.services.meridian import MeridianStructuredExtractionService, parse_date, parse_int, parse_lbh, parse_percent
 
 
 def load_sample_extraction() -> DocumentExtraction:
@@ -51,6 +51,11 @@ def test_parse_helpers() -> None:
         "breadth": 211,
         "height": 134,
     }
+    assert parse_percent("32%") == 0.32
+    assert parse_percent("32") == 0.32
+    assert parse_percent("0.32") == 0.32
+    assert parse_percent("0") == 0.0
+    assert parse_percent("-") is None
 
 
 def test_meridian_normalizer_builds_all_page_types() -> None:
@@ -119,7 +124,7 @@ def test_page_3_skips_invalid_rows_and_captures_summaries() -> None:
     operations = page.model_extra["machining_operations"]
     assert [operation["operation_no"] for operation in operations] == [20, 30, 40, 50, 60, 70, 80, 90, 100]
     assert page.model_extra["capital_summary"]["total_capital_expenditure_rs"] == 29700000
-    assert page.model_extra["cell_summary"]["cell_utilisation_percent"] == 83
+    assert page.model_extra["cell_summary"]["cell_utilisation_percent"] == 0.83
     assert page.model_extra["operating_costs"][0]["total_operating_cost_rs"] == 5906162
     assert len(page.model_extra["assumptions_notes"]) == 6
     assert page.model_extra["assumptions_notes"][0]["text"] == "Refer additional sheet for remarks pertaining to Machining"

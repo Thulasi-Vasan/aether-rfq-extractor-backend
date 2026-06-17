@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 
 from app.main import app
 from app.core.config import get_settings
-from app.core.excel_mapping import EXCEL_MAPPING
+from app.core.excel_mapping import CELL_PAGE, EXCEL_MAPPING
 from app.services.storage import document_id_from_sha256, sha256_file
 
 
@@ -61,3 +61,61 @@ def test_excel_mapping_prefers_exact_capital_item_match():
 
     assert EXCEL_MAPPING["M49"](extraction) == 80.6
     assert EXCEL_MAPPING["M50"](extraction) == 37.0
+
+
+def test_after_assembly_machining_costs_are_normalized_to_lakhs():
+    extraction = SimpleNamespace(
+        pages=[
+            SimpleNamespace(),
+            SimpleNamespace(),
+            SimpleNamespace(
+                operating_costs=[
+                    {
+                        "category": "machining_operating_cost",
+                        "items": [
+                            {
+                                "description": "Cost of Cutting tools",
+                                "amount_rs": 363000,
+                            }
+                        ],
+                    }
+                ]
+            ),
+        ]
+    )
+
+    assert EXCEL_MAPPING["AD42"](extraction) == 3.63
+
+
+def test_capital_total_cost_column_n_has_pdf_fallback_mappings():
+    extraction = SimpleNamespace(
+        pages=[
+            SimpleNamespace(
+                capital_investments=[
+                    {
+                        "category": "Sand core",
+                        "items": [
+                            {
+                                "description": "Core shooting M/c",
+                                "total_cost_rs_lac": 47.25,
+                            },
+                            {
+                                "description": "Core placement fixture",
+                                "total_cost_rs_lac": 2.1,
+                            },
+                        ],
+                    }
+                ],
+                capital_investments_summary={
+                    "total_investment_rs_lac": 470.765,
+                },
+            )
+        ]
+    )
+
+    expected_cells = [f"N{row}" for row in range(23, 55)]
+    assert all(coord in EXCEL_MAPPING for coord in expected_cells)
+    assert all(CELL_PAGE.get(coord) == 1 for coord in expected_cells)
+    assert EXCEL_MAPPING["N23"](extraction) == 47.25
+    assert EXCEL_MAPPING["N53"](extraction) == 2.1
+    assert EXCEL_MAPPING["N54"](extraction) == 470.765

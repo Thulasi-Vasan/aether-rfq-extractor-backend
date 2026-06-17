@@ -2,6 +2,7 @@ import io
 
 import openpyxl
 from openpyxl.styles import PatternFill
+from openpyxl.utils import get_column_letter
 
 from app.core.config import Settings
 from app.core.excel_mapping import (
@@ -11,6 +12,7 @@ from app.core.excel_mapping import (
     CELL_SOURCE_TYPES,
     EXCEL_MAPPING,
     EXCEL_SOURCE_MAPPING,
+    FORMULA_CELLS,
     set_cell_value,
 )
 from app.core.provenance import ProvenanceRecorder
@@ -42,12 +44,113 @@ def _write_cell(sheet, coord: str, val) -> None:
     _apply_fill(sheet, coord, POPULATED_FILL)
 
 
+def _clear_fill(sheet, coord: str) -> None:
+    _apply_fill(sheet, coord, PatternFill(fill_type=None))
+
+
+def _write_formula_cell(sheet, coord: str, formula: str) -> None:
+    set_cell_value(sheet, coord, formula)
+    _clear_fill(sheet, coord)
+
+
 def _apply_null_fill(sheet, coord: str, is_blocking: bool) -> None:
     _apply_fill(sheet, coord, NULL_BLOCKING_FILL if is_blocking else NULL_INFO_FILL)
 
 
 def _is_missing_excel_value(val) -> bool:
     return val is None or (isinstance(val, str) and val.strip() == "")
+
+
+def _merged_anchor_map(sheet) -> dict[str, str]:
+    """Map every covered (non-anchor) merged cell coord to its range's anchor.
+
+    Some equipment "units" columns in the master sheet merge several rows into a
+    single cell (e.g. L23:L24, L28:L31) and the in-sheet formulas reference the
+    anchor. Multiple mapped cells therefore land in one physical cell; writing a
+    non-anchor would silently clobber the anchor's value. This map lets the
+    populate pass redirect every write to the anchor and keep the first non-empty
+    value (mirroring how the master carries one shared value per merged group)."""
+    out: dict[str, str] = {}
+    for merged_range in sheet.merged_cells.ranges:
+        min_col, min_row, max_col, max_row = merged_range.bounds
+        anchor = f"{get_column_letter(min_col)}{min_row}"
+        for row in range(min_row, max_row + 1):
+            for col in range(min_col, max_col + 1):
+                coord = f"{get_column_letter(col)}{row}"
+                if coord != anchor:
+                    out[coord] = anchor
+    return out
+
+
+def _resolve_mapped_values(sheet, extraction: MeridianExtractionResponse):
+    """Compute the value to write for every non-formula mapped cell, collapsing
+    merged groups so the anchor keeps the first non-empty value in the group.
+
+    Returns (winners, owners):
+      winners[anchor_or_standalone] = (source_coord, value)  — cells that got a value
+      owners = ordered list of cells that own a provenance record (anchors +
+               standalone cells; covered non-anchor cells are excluded)."""
+    anchor_of = _merged_anchor_map(sheet)
+    winners: dict[str, tuple[str, object]] = {}
+    owners: list[str] = []
+    for coord in EXCEL_MAPPING:
+        if coord in FORMULA_CELLS:
+            continue
+        target = anchor_of.get(coord, coord)
+        if target not in anchor_of and target not in owners:
+            owners.append(target)
+        val = EXCEL_MAPPING[coord](extraction)
+        if _is_missing_excel_value(val) or target in winners:
+            continue
+        winners[target] = (coord, val)
+    return winners, owners
+
+
+def _formula_inputs_present(sheet, inputs: list[str]) -> bool:
+    return all(not _is_missing_excel_value(sheet[coord].value) for coord in inputs)
+
+
+def _is_aggregate_formula(formula: str) -> bool:
+    """Aggregates (SUM/MAX/…) tolerate blank inputs — Excel treats them as 0 — so
+    they are always safe to write as a formula and must never fall back to a static
+    value (which would disagree with the line items being aggregated)."""
+    head = formula.lstrip("=+ ").upper()
+    return head.startswith(("SUM(", "MAX(", "MIN(", "AVERAGE(", "COUNT("))
+
+
+def _resolve_formula_cells(sheet, extraction: MeridianExtractionResponse) -> dict[str, str]:
+    statuses: dict[str, str] = {}
+
+    for _ in range(3):
+        changed = False
+        for coord, (formula, inputs) in FORMULA_CELLS.items():
+            before_value = sheet[coord].value
+            before_status = statuses.get(coord)
+
+            if _is_aggregate_formula(formula) or _formula_inputs_present(sheet, inputs):
+                _write_formula_cell(sheet, coord, formula)
+                statuses[coord] = "formula"
+            elif coord in EXCEL_MAPPING:
+                fallback_value = EXCEL_MAPPING[coord](extraction)
+                if not _is_missing_excel_value(fallback_value):
+                    _write_cell(sheet, coord, fallback_value)
+                    statuses[coord] = "formula_fallback"
+                else:
+                    set_cell_value(sheet, coord, None)
+                    _clear_fill(sheet, coord)
+                    statuses[coord] = "blank"
+            else:
+                set_cell_value(sheet, coord, None)
+                _clear_fill(sheet, coord)
+                statuses[coord] = "blank"
+
+            if before_value != sheet[coord].value or before_status != statuses.get(coord):
+                changed = True
+
+        if not changed:
+            break
+
+    return statuses
 
 
 def _load_workbook(template_path):
@@ -173,24 +276,42 @@ def _build_provenance_record(
     structured: MeridianExtractionResponse,
     doc_extraction: DocumentExtraction,
     pdf_filename: str,
+    *,
+    source_type_override: str | None = None,
+    display_coord: str | None = None,
 ) -> FieldProvenance:
+    # `coord` drives the field meaning + source lookup (it is the cell whose
+    # mapping produced the value); `excel_cell` is where the value physically
+    # lives. They differ only for merged groups, where the value is stored on the
+    # range anchor but came from a covered cell's mapping.
+    excel_cell = display_coord or coord
     field_key = CELL_FIELD_KEYS.get(coord, coord.lower())
     label = CELL_FIELD_LABELS.get(coord, coord)
-    source_type = CELL_SOURCE_TYPES.get(coord, "pdf_cell")
+    source_type = source_type_override or CELL_SOURCE_TYPES.get(coord, "pdf_cell")
 
-    # 1. Explicitly derived / default cells — correct outcomes, no bbox expected.
-    if source_type in ("default", "derived"):
-        reason = (
-            "Default value configured in Excel mapping."
-            if source_type == "default"
-            else "Value derived/calculated from extracted data."
-        )
+    # 1. Explicitly derived / default / unclear cells — correct outcomes, no bbox
+    # expected. "unclear_logic" is a NullCategory, not a SourceType: when such a
+    # cell actually carries a value it is reported as "inferred" so it never
+    # falsely claims a PDF source cell.
+    if source_type in ("default", "derived", "unclear_logic"):
+        if source_type == "default":
+            reason = "Default value configured in Excel mapping."
+            emitted_source_type = source_type
+        elif source_type == "derived":
+            reason = "Value derived/calculated from extracted data."
+            emitted_source_type = source_type
+        else:
+            reason = (
+                "Value present, but its derivation logic in the cost model is "
+                "unclear — not read directly from a PDF cell."
+            )
+            emitted_source_type = "inferred"
         return FieldProvenance(
-            excel_cell=coord,
+            excel_cell=excel_cell,
             field_key=field_key,
             label=label,
             value=val,
-            source_type=source_type,
+            source_type=emitted_source_type,
             reason=reason,
         )
 
@@ -199,22 +320,45 @@ def _build_provenance_record(
     resolved = _resolve_source_cell(coord, field_key, structured, doc_extraction)
     if resolved:
         table, row_idx, col_idx, tc = resolved
+        reason = (
+            "Formula inputs were missing, so this value was taken directly from the PDF."
+            if source_type == "formula_fallback"
+            else f"Extracted from table {table.table_id} (page {table.page_number}), "
+            f"row {row_idx}, col {col_idx}."
+        )
         return _pdf_cell_record(
-            coord, field_key, label, val, pdf_filename, doc_extraction, table,
+            excel_cell, field_key, label, val, pdf_filename, doc_extraction, table,
             row_idx, col_idx, tc,
-            f"Extracted from table {table.table_id} (page {table.page_number}), "
-            f"row {row_idx}, col {col_idx}.",
+            reason,
+            source_type=source_type,
         )
 
     # 4. Genuinely unlocatable — value was extracted but its cell could not be resolved.
     return FieldProvenance(
-        excel_cell=coord,
+        excel_cell=excel_cell,
         field_key=field_key,
         label=label,
         value=val,
-        source_type="not_available",
-        reason="Extracted from the document; exact location pending.",
+        source_type=source_type if source_type == "formula_fallback" else "not_available",
+        reason=(
+            "Formula inputs were missing, so this value was taken from the PDF; exact location pending."
+            if source_type == "formula_fallback"
+            else "Extracted from the document; exact location pending."
+        ),
         pdf_filename=pdf_filename,
+    )
+
+
+def _build_formula_record(coord: str, formula: str) -> FieldProvenance:
+    field_key = CELL_FIELD_KEYS.get(coord, coord.lower())
+    label = CELL_FIELD_LABELS.get(coord, coord)
+    return FieldProvenance(
+        excel_cell=coord,
+        field_key=field_key,
+        label=label,
+        value=formula,
+        source_type="formula",
+        reason="Calculated by an in-sheet Excel formula after all required inputs were populated.",
     )
 
 
@@ -274,11 +418,11 @@ class ExcelExportService:
             wb = _load_workbook(self.settings.excel_template_path)
             sheet = wb["Input Sheet"]
 
-            for coord, extractor_func in EXCEL_MAPPING.items():
-                val = extractor_func(extraction)
-                if not _is_missing_excel_value(val):
-                    _write_cell(sheet, coord, val)
+            winners, _ = _resolve_mapped_values(sheet, extraction)
+            for target, (_src_coord, val) in winners.items():
+                _write_cell(sheet, target, val)
 
+            _resolve_formula_cells(sheet, extraction)
             _strip_sheet_extras(sheet)
             output = io.BytesIO()
             wb.save(output)
@@ -298,11 +442,34 @@ class ExcelExportService:
             sheet = wb["Input Sheet"]
             recorder = ProvenanceRecorder()
 
-            for coord, extractor_func in EXCEL_MAPPING.items():
-                val = extractor_func(extraction)
-                if not _is_missing_excel_value(val):
+            winners, owners = _resolve_mapped_values(sheet, extraction)
+            for coord in owners:
+                if coord in winners:
+                    src_coord, val = winners[coord]
                     _write_cell(sheet, coord, val)
-                    prov = _build_provenance_record(coord, val, extraction, doc_extraction, pdf_filename)
+                    prov = _build_provenance_record(
+                        src_coord, val, extraction, doc_extraction, pdf_filename,
+                        display_coord=coord,
+                    )
+                else:
+                    prov = _build_null_record(coord, extraction, doc_extraction, pdf_filename)
+                    _apply_null_fill(sheet, coord, prov.blocks_approval)
+                recorder.record(prov)
+
+            formula_statuses = _resolve_formula_cells(sheet, extraction)
+            for coord, (formula, _) in FORMULA_CELLS.items():
+                status = formula_statuses.get(coord)
+                if status == "formula":
+                    prov = _build_formula_record(coord, formula)
+                elif status == "formula_fallback":
+                    prov = _build_provenance_record(
+                        coord,
+                        sheet[coord].value,
+                        extraction,
+                        doc_extraction,
+                        pdf_filename,
+                        source_type_override="formula_fallback",
+                    )
                 else:
                     prov = _build_null_record(coord, extraction, doc_extraction, pdf_filename)
                     _apply_null_fill(sheet, coord, prov.blocks_approval)

@@ -136,7 +136,16 @@ class ReferenceDocumentResponse(BaseModel):
     message: str | None = None
 
 
-SourceType = Literal["pdf_cell", "derived", "default", "inferred", "not_available", "null"]
+SourceType = Literal[
+    "pdf_cell",
+    "derived",
+    "default",
+    "inferred",
+    "formula",
+    "formula_fallback",
+    "not_available",
+    "null",
+]
 NullCategory = Literal[
     "data_absent",
     "derived_dependency_missing",

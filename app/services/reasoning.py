@@ -55,6 +55,13 @@ def _fields_to_prompt_payload(records: list[FieldProvenance]) -> str:
             item["note"] = "hardcoded default — explain what it means for the cost sheet"
         elif r.source_type == "derived":
             item["note"] = "calculated/derived value — explain the derivation logic"
+        elif r.source_type == "formula":
+            item["note"] = "calculated by an in-sheet Excel formula — explain that all required inputs were available"
+        elif r.source_type == "formula_fallback":
+            item["note"] = (
+                "normally calculated by a formula, but one or more inputs were missing; "
+                "explain that the directly extracted PDF value is shown instead"
+            )
         elif r.source_type == "not_available":
             item["note"] = "extracted from the document, exact location pending — explain what the field represents"
         elif r.source_type == "null":

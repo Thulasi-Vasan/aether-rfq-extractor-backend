@@ -1,5 +1,7 @@
 from types import SimpleNamespace
 
+import openpyxl
+
 from app.core.excel_mapping import CELL_PAGE, CELL_SOURCE_TYPES, EXCEL_MAPPING
 from app.models import (
     DocumentExtraction,
@@ -10,8 +12,32 @@ from app.models import (
     TableCell,
     TableRow,
 )
-from app.services.excel_populator import _build_null_record
+from app.services.excel_populator import _build_formula_record, _build_null_record
 from app.services.excel_populator import _build_provenance_record, _is_missing_excel_value
+from app.services.excel_populator import _resolve_formula_cells
+
+
+def test_unclear_logic_cell_with_value_is_reported_as_inferred():
+    # "unclear_logic" is a NullCategory, not a SourceType. When such a cell
+    # actually carries a value it must be emitted as a valid SourceType
+    # ("inferred") and never claim a PDF source — otherwise FieldProvenance
+    # validation fails (regression: export-excel 422).
+    doc_extraction = DocumentExtraction(
+        document_id="doc",
+        filename="sample.pdf",
+        sha256="sha",
+        page_count=1,
+        pages=[_page_meta(1)],
+        tables=[],
+    )
+
+    record = _build_provenance_record(
+        "K26", 0.85, _structured_page_1(), doc_extraction, "sample.pdf"
+    )
+
+    assert record.source_type == "inferred"
+    assert record.value == 0.85
+    assert record.bbox is None
 
 
 def _page_meta(page_number: int, classification: str = "vector_text") -> PageMetadata:
@@ -318,3 +344,100 @@ def test_null_record_marks_derived_dependency_missing():
     assert record.source_type == "null"
     assert record.null_category == "derived_dependency_missing"
     assert record.blocks_approval is False   # derived_dependency_missing is informational, not blocking
+
+
+def test_cross_sheet_l_cells_only_grey_when_marked_unclear_logic():
+    doc_extraction = DocumentExtraction(
+        document_id="doc",
+        filename="sample.pdf",
+        sha256="sha",
+        page_count=1,
+        pages=[_page_meta(1)],
+        tables=[_table_with_blank_static_cell()],
+    )
+    structured = MeridianExtractionResponse(
+        document_id="doc",
+        filename="sample.pdf",
+        page_count=1,
+        pages=[
+            MeridianStructuredPage(
+                page_number=1,
+                page_type="gdc_estimation",
+                capital_investments=[{"category": "Casting", "items": []}],
+            )
+        ],
+    )
+
+    assert CELL_SOURCE_TYPES.get("L17") != "unclear_logic"
+    record = _build_null_record("L29", structured, doc_extraction, "sample.pdf")
+    assert record.source_type == "null"
+    assert record.null_category == "unclear_logic"
+
+
+def test_formula_resolver_writes_formula_when_inputs_present():
+    wb = openpyxl.Workbook()
+    sheet = wb.active
+    sheet["L23"] = 1
+    sheet["M23"] = 47.25
+    sheet["V5"] = 1.05
+    extraction = SimpleNamespace(pages=[SimpleNamespace(capital_investments=[])])
+
+    statuses = _resolve_formula_cells(sheet, extraction)
+
+    assert statuses["N23"] == "formula"
+    assert sheet["N23"].value == "=(M23*L23)*V5"
+
+
+def test_formula_resolver_uses_pdf_fallback_when_inputs_missing():
+    wb = openpyxl.Workbook()
+    sheet = wb.active
+    extraction = SimpleNamespace(
+        pages=[
+            SimpleNamespace(
+                capital_investments=[
+                    {
+                        "category": "Sand core",
+                        "items": [
+                            {
+                                "description": "Core shooting M/c",
+                                "total_cost_rs_lac": 47.25,
+                            }
+                        ],
+                    }
+                ],
+            )
+        ]
+    )
+
+    statuses = _resolve_formula_cells(sheet, extraction)
+
+    assert statuses["N23"] == "formula_fallback"
+    assert sheet["N23"].value == 47.25
+
+
+def test_formula_provenance_source_types_are_distinct():
+    formula_record = _build_formula_record("N23", "=(M23*L23)*V5")
+    fallback_record = _build_provenance_record(
+        "N23",
+        47.25,
+        MeridianExtractionResponse(
+            document_id="doc",
+            filename="sample.pdf",
+            page_count=1,
+            pages=[MeridianStructuredPage(page_number=1, page_type="gdc_estimation")],
+        ),
+        DocumentExtraction(
+            document_id="doc",
+            filename="sample.pdf",
+            sha256="sha",
+            page_count=1,
+            pages=[_page_meta(1)],
+            tables=[],
+        ),
+        "sample.pdf",
+        source_type_override="formula_fallback",
+    )
+
+    assert formula_record.source_type == "formula"
+    assert fallback_record.source_type == "formula_fallback"
+    assert "Formula inputs were missing" in fallback_record.reason
