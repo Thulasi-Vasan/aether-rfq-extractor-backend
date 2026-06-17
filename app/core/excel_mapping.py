@@ -150,7 +150,10 @@ EXCEL_MAPPING: dict[str, Callable[[Any], Any]] = {
     "C2": lambda r: _get_header_val(r, "rfq_no"),
     "C4": lambda r: _get_header_val(r, "customer"),
     "G4": lambda r: _get_header_val(r, "annual_volume_nos"),
-    "G5": lambda r: (_get_header_val(r, "annual_volume_nos") * 1.15) if isinstance(_get_header_val(r, "annual_volume_nos"), (int, float)) else None,
+    # G5 (Annual Volume incl. Rejection) is now an in-sheet Excel formula
+    # =G4*1.15 in the template, so it renders as a traceable formula-derived
+    # (blue) cell rather than a Python-computed value. Not mapped here so the
+    # backend leaves the template formula intact.
     "C5": lambda r: _get_header_val(r, "final_part_no"),
     "C6": lambda r: _get_header_val(r, "final_part_rev_no"),
     "C7": lambda r: _get_header_val(r, "description"),
@@ -977,7 +980,6 @@ CELL_FIELD_LABELS: dict[str, str] = {
 CELL_SOURCE_TYPES: dict[str, str] = {
     "C10": "default",   # hardcoded "Domestic"
     "D10": "default",   # hardcoded "CIF"
-    "G5": "derived",    # annual_volume_nos * 1.15
     "W29": "derived",   # boolean → Y/N
     "X29": "derived",
     "W33": "derived",
@@ -985,6 +987,11 @@ CELL_SOURCE_TYPES: dict[str, str] = {
     "W52": "derived",
     "X52": "derived",
     "AI51": "derived",
+    "AW51": "derived",  # boolean → Y/N (BO machining mirror of AI51)
+    # Packaging LBH — same lbh_mm source as G10-G12, finance team input
+    "AM10": "unclear_logic",
+    "AM11": "unclear_logic",
+    "AM12": "unclear_logic",
     # Fields not sourced from PDF or formula — require finance team input.
     "G10": "unclear_logic",   # LBH Length (mm)
     "G11": "unclear_logic",   # LBH Breadth (mm)
@@ -1031,6 +1038,14 @@ CELL_SOURCE_TYPES: dict[str, str] = {
     "G122": "unclear_logic",  # HT — Part Weight
     "G125": "unclear_logic",  # HT — Batch Price
     "C102": "unclear_logic",  # Capex as per Project Capex-Opex Details (cross-sheet, not available)
+    # Computed in the broader costing model (cross-sheet VLOOKUPs / formula mirrors),
+    # not present in the RFQ PDF — never populated by extraction, so not "from PDF".
+    "Y35": "unclear_logic",   # VMC — MHR rate (master: VLOOKUP into MHR(6))
+    "Y38": "unclear_logic",   # Turning Centre — MHR rate
+    "Y39": "unclear_logic",   # Washing Machine — MHR rate
+    "Y40": "unclear_logic",   # Leak Testing Machine — MHR rate (master: Assembly sheet ref)
+    "Y43": "unclear_logic",   # Consumable Tools — MHR rate
+    "AI38": "unclear_logic",  # Total Capital Expenditure (master: =AI35 formula mirror)
 }
 
 
