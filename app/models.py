@@ -163,6 +163,7 @@ class FieldProvenance(BaseModel):
     value: Any
     source_type: SourceType
     reason: str
+    formula: str | None = None
     null_category: NullCategory | None = None
     blocks_approval: bool = False
     pdf_filename: str | None = None

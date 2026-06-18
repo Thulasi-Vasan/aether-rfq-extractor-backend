@@ -12,6 +12,7 @@ from app.models import (
     TableCell,
     TableRow,
 )
+from app.services.excel_populator import FORMULA_FILL, _apply_static_formula_cache_fixes
 from app.services.excel_populator import _build_formula_record, _build_null_record
 from app.services.excel_populator import _build_provenance_record, _is_missing_excel_value
 from app.services.excel_populator import _resolve_formula_cells
@@ -386,6 +387,36 @@ def test_formula_resolver_writes_formula_when_inputs_present():
 
     assert statuses["N23"] == "formula"
     assert sheet["N23"].value == "=(M23*L23)*V5"
+    assert sheet["N23"].fill.fgColor.rgb == FORMULA_FILL.fgColor.rgb
+
+
+def test_n46_keeps_formula_when_m46_is_blank():
+    wb = openpyxl.Workbook()
+    sheet = wb.active
+    sheet["V5"] = 1.05
+    extraction = SimpleNamespace(
+        pages=[
+            SimpleNamespace(
+                capital_investments=[
+                    {
+                        "category": "Others",
+                        "items": [
+                            {
+                                "description": "Endoscope machine",
+                                "total_cost_rs_lac": 8.0,
+                            }
+                        ],
+                    }
+                ],
+            )
+        ]
+    )
+
+    statuses = _resolve_formula_cells(sheet, extraction)
+
+    assert statuses["N46"] == "formula"
+    assert sheet["M46"].value is None
+    assert sheet["N46"].value == "=M46*V5"
 
 
 def test_formula_resolver_uses_pdf_fallback_when_inputs_missing():
@@ -439,5 +470,24 @@ def test_formula_provenance_source_types_are_distinct():
     )
 
     assert formula_record.source_type == "formula"
+    assert formula_record.formula == "=(M23*L23)*V5"
     assert fallback_record.source_type == "formula_fallback"
     assert "Formula inputs were missing" in fallback_record.reason
+
+
+def test_c6_formula_record_carries_formula_for_tracking_chips():
+    record = _build_formula_record("C6", "=C5")
+
+    assert record.excel_cell == "C6"
+    assert record.source_type == "formula"
+    assert record.formula == "=C5"
+
+
+def test_i17_is_zeroed_when_formula_inputs_are_blank():
+    wb = openpyxl.Workbook()
+    sheet = wb.active
+    sheet["I17"] = "=(D13)*I53*1.1"
+
+    _apply_static_formula_cache_fixes(sheet)
+
+    assert sheet["I17"].value == 0

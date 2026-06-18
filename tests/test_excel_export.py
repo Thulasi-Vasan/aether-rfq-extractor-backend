@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 
 from app.main import app
 from app.core.config import get_settings
-from app.core.excel_mapping import CELL_PAGE, EXCEL_MAPPING
+from app.core.excel_mapping import CELL_FIELD_KEYS, CELL_FIELD_LABELS, CELL_PAGE, EXCEL_MAPPING
 from app.services.storage import document_id_from_sha256, sha256_file
 
 
@@ -119,3 +119,11 @@ def test_capital_total_cost_column_n_has_pdf_fallback_mappings():
     assert EXCEL_MAPPING["N23"](extraction) == 47.25
     assert EXCEL_MAPPING["N53"](extraction) == 2.1
     assert EXCEL_MAPPING["N54"](extraction) == 470.765
+
+
+def test_summary_row_46_machine_amount_mappings_are_removed():
+    for coord in ("K46", "L46", "M46"):
+        assert coord not in EXCEL_MAPPING
+        assert coord not in CELL_FIELD_KEYS
+        assert coord not in CELL_FIELD_LABELS
+        assert coord not in CELL_PAGE

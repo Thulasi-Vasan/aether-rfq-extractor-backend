@@ -22,6 +22,7 @@ from app.services.meridian import FIELD_PROVENANCE_SOURCES, cell_at, cell_by_ind
 from app.services.null_classifier import blocks_approval, classify_null_cell
 
 POPULATED_FILL = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
+FORMULA_FILL = PatternFill(start_color="D6E4F7", end_color="D6E4F7", fill_type="solid")
 NULL_BLOCKING_FILL = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
 NULL_INFO_FILL = PatternFill(start_color="D9D9D9", end_color="D9D9D9", fill_type="solid")
 
@@ -50,7 +51,27 @@ def _clear_fill(sheet, coord: str) -> None:
 
 def _write_formula_cell(sheet, coord: str, formula: str) -> None:
     set_cell_value(sheet, coord, formula)
-    _clear_fill(sheet, coord)
+    _apply_fill(sheet, coord, FORMULA_FILL)
+
+
+def _apply_static_formula_cache_fixes(sheet) -> None:
+    if _is_missing_excel_value(sheet["D13"].value) and _is_missing_excel_value(sheet["I53"].value):
+        set_cell_value(sheet, "I17", 0)
+        _clear_fill(sheet, "I17")
+
+
+_PRIORITY_FILLS = {"FFC6EFCE", "FFFFC7CE", "FFD9D9D9"}  # green, red, grey — do not override
+
+
+def _apply_template_formula_fills(sheet) -> None:
+    """Apply blue fill to every template-native formula cell not already colored."""
+    for row in sheet.iter_rows():
+        for cell in row:
+            if not (isinstance(cell.value, str) and cell.value.startswith("=")):
+                continue
+            fg = cell.fill.fgColor.rgb if cell.fill and cell.fill.fill_type not in (None, "none") else None
+            if fg not in _PRIORITY_FILLS and fg != "FFD6E4F7":
+                cell.fill = FORMULA_FILL
 
 
 def _apply_null_fill(sheet, coord: str, is_blocking: bool) -> None:
@@ -359,6 +380,7 @@ def _build_formula_record(coord: str, formula: str) -> FieldProvenance:
         value=formula,
         source_type="formula",
         reason="Calculated by an in-sheet Excel formula after all required inputs were populated.",
+        formula=formula,
     )
 
 
@@ -423,6 +445,8 @@ class ExcelExportService:
                 _write_cell(sheet, target, val)
 
             _resolve_formula_cells(sheet, extraction)
+            _apply_static_formula_cache_fixes(sheet)
+            _apply_template_formula_fills(sheet)
             _strip_sheet_extras(sheet)
             output = io.BytesIO()
             wb.save(output)
@@ -457,6 +481,7 @@ class ExcelExportService:
                 recorder.record(prov)
 
             formula_statuses = _resolve_formula_cells(sheet, extraction)
+            _apply_static_formula_cache_fixes(sheet)
             for coord, (formula, _) in FORMULA_CELLS.items():
                 status = formula_statuses.get(coord)
                 if status == "formula":
@@ -475,6 +500,7 @@ class ExcelExportService:
                     _apply_null_fill(sheet, coord, prov.blocks_approval)
                 recorder.record(prov)
 
+            _apply_template_formula_fills(sheet)
             _strip_sheet_extras(sheet)
             output = io.BytesIO()
             wb.save(output)
