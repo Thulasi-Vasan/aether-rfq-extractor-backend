@@ -4,6 +4,7 @@ from fastapi.testclient import TestClient
 
 from app.core.config import get_settings
 from app.main import app
+from app.models import LLMOperation, MachiningOperationsResponse
 
 
 client = TestClient(app)
@@ -71,3 +72,38 @@ def test_reference_pdf_extracts_when_present() -> None:
     raw_meridian_payload = raw_meridian_response.json()
     assert len(raw_meridian_payload["raw_tables"]) >= 1
     assert len(raw_meridian_payload["pages"][0]["raw_tables"]) == 1
+
+
+def test_extract_operations_endpoint_returns_operations_only(monkeypatch) -> None:
+    def fake_extract(pdf_bytes: bytes, step_path: str) -> MachiningOperationsResponse:
+        assert pdf_bytes == b"%PDF-1.4"
+        assert Path(step_path).exists()
+        return MachiningOperationsResponse(
+            model_id="test-model",
+            operations=[
+                LLMOperation(
+                    opn_no=20,
+                    operation_name="FINAL INSPECTION USING CMM",
+                    operation_description="Inspect the machined part.",
+                    why_machine_process="CMM verifies drawing dimensions.",
+                    sequence_rationale="Final inspection follows machining.",
+                    source_of_truth=[],
+                )
+            ],
+        )
+
+    monkeypatch.setattr("app.main.run_machining_extraction", fake_extract)
+    response = client.post(
+        "/v1/machining/extract-operations",
+        files={
+            "drawing_pdf": ("drawing.pdf", b"%PDF-1.4", "application/pdf"),
+            "step_file": ("part.step", b"ISO-10303-21", "application/step"),
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["model_id"] == "test-model"
+    assert payload["operations"][0]["opn_no"] == 20
+    assert "cell_cycle_time_min" not in payload
+    assert "total_capex_rs" not in payload

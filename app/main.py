@@ -1,4 +1,7 @@
 import io
+import logging
+import os
+import tempfile
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, File, Query, UploadFile
@@ -8,11 +11,19 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from starlette.concurrency import run_in_threadpool
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s  %(levelname)-8s  %(name)s  %(message)s",
+    datefmt="%H:%M:%S",
+)
+log = logging.getLogger(__name__)
+
 from app.core.config import Settings, get_settings
 from app.models import (
     DocumentSummary,
     ErrorResponse,
     FieldProvenance,
+    MachiningOperationsResponse,
     MeridianExtractionResponse,
     ReferenceDocumentResponse,
     TablesResponse,
@@ -23,6 +34,10 @@ from app.services.meridian import MeridianStructuredExtractionService
 from app.services.storage import DocumentStore, document_id_from_sha256, sha256_file
 from app.services.excel_populator import ExcelExportService
 from app.services.reasoning import BedrockReasoningService
+from app.services.machining.service import (
+    ExtractionError as MachiningExtractionError,
+    extract_machining_operations as run_machining_extraction,
+)
 
 
 def create_app() -> FastAPI:
@@ -73,6 +88,35 @@ def get_extractor(
 def health() -> dict[str, str]:
     return {"status": "ok"}
 
+
+@app.post("/v1/machining/extract-operations", response_model=MachiningOperationsResponse)
+async def extract_machining_operations(
+    drawing_pdf: UploadFile = File(..., description="2D engineering drawing (PDF)"),
+    step_file: UploadFile = File(..., description="3D model (STEP/.stp/.step)"),
+) -> MachiningOperationsResponse:
+    log.info("Machining extraction request: pdf=%s step=%s", drawing_pdf.filename, step_file.filename)
+    pdf_bytes = await drawing_pdf.read()
+    if not pdf_bytes:
+        raise HTTPException(status_code=400, detail="Empty drawing_pdf upload.")
+
+    step_bytes = await step_file.read()
+    if not step_bytes:
+        raise HTTPException(status_code=400, detail="Empty step_file upload.")
+
+    suffix = os.path.splitext(step_file.filename or "")[1] or ".stp"
+    tmp_path: str | None = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+            tmp.write(step_bytes)
+            tmp_path = tmp.name
+        return await run_in_threadpool(run_machining_extraction, pdf_bytes, tmp_path)
+    except MachiningExtractionError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Machining extraction failed: {exc}") from exc
+    finally:
+        if tmp_path and os.path.exists(tmp_path):
+            os.unlink(tmp_path)
 
 @app.post("/v1/documents", response_model=DocumentSummary)
 async def upload_document(
@@ -191,7 +235,6 @@ def get_reference_document(
         extracted=store.has_extraction(document_id),
     )
 
-
 @app.post("/v1/reference-document/extract", response_model=DocumentSummary)
 async def extract_reference_document(
     force_reextract: bool = Query(default=False),
@@ -250,7 +293,6 @@ def get_provenance(
             detail="Provenance not found. Export the Excel file first to generate provenance.",
         )
     return records
-
 
 @app.post("/v1/documents/{document_id}/provenance/enrich", response_model=list[FieldProvenance])
 def enrich_provenance(
