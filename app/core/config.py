@@ -17,11 +17,11 @@ class Settings(BaseSettings):
     excel_target_fill_color: str = Field(default="FFFFFF00", validation_alias="AETHER_EXCEL_TARGET_FILL_COLOR")
     excel_template_path: Path = Field(default=Path("samples/Input Template.xlsx"), validation_alias="AETHER_EXCEL_TEMPLATE_PATH",)
 
-    # AWS Bedrock — set these via env vars or .env file
+    # AWS Bedrock - shared region, domain-specific models.
     bedrock_region: str = Field(default="us-east-1", validation_alias="AETHER_BEDROCK_REGION")
-    bedrock_model_id: str = Field(
+    cost_estimation_bedrock_model_id: str = Field(
         default="amazon.nova-lite-v1:0",
-        validation_alias="AETHER_BEDROCK_MODEL_ID",
+        validation_alias=AliasChoices("AETHER_COST_ESTIMATION_BEDROCK_MODEL_ID", "AETHER_BEDROCK_MODEL_ID"),
     )
 
     # Settings used only by the standalone machining-operation extractor.
@@ -76,6 +76,11 @@ class Settings(BaseSettings):
             return StepFeatureSummary.model_validate(raw_summary)
         except ValueError as exc:
             raise ValueError("STATIC_STEP_SUMMARY does not match the StepFeatureSummary schema") from exc
+
+    @property
+    def bedrock_model_id(self) -> str:
+        """Backward-compatible alias for the cost-estimation Bedrock model."""
+        return self.cost_estimation_bedrock_model_id
 
     @property
     def uploads_dir(self) -> Path:

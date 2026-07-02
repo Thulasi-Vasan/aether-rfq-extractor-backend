@@ -1,5 +1,5 @@
 from app.models import DocumentExtraction, ExtractedTable, PageMetadata, TableCell, TableRow
-from app.services.meridian import MeridianStructuredExtractionService
+from app.services.cost_estimation.meridian import MeridianStructuredExtractionService
 
 
 def _page_meta(page_number: int) -> PageMetadata:

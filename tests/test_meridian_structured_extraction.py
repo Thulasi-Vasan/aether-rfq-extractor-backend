@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 
 from app.models import DocumentExtraction, ExtractedTable, PageMetadata
-from app.services.meridian import MeridianStructuredExtractionService, parse_date, parse_int, parse_lbh, parse_percent
+from app.services.cost_estimation.meridian import MeridianStructuredExtractionService, parse_date, parse_int, parse_lbh, parse_percent
 
 
 def load_sample_extraction() -> DocumentExtraction:
