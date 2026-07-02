@@ -1,8 +1,8 @@
 from fastapi import Depends
 
 from app.core.config import Settings, get_settings
-from app.services.excel_populator import ExcelExportService
-from app.services.extractor import PdfExtractionService
+from app.services.cost_estimation.excel_populator import ExcelExportService
+from app.services.documents.extractor import PdfExtractionService
 from app.services.storage import DocumentStore
 
 

@@ -1,7 +1,7 @@
 import json
 
 from app.models import FieldProvenance
-from app.services.reasoning import _fields_to_prompt_payload
+from app.services.cost_estimation.reasoning import _fields_to_prompt_payload
 
 
 def test_reasoning_payload_distinguishes_formula_and_formula_fallback():

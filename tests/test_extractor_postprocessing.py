@@ -1,5 +1,5 @@
 from app.models import ExtractedTable, TableCell, TableColumn, TableRow
-from app.services.extractor import PdfExtractionService
+from app.services.documents.extractor import PdfExtractionService
 
 
 def make_table(table_id: str, bbox: tuple[float, float, float, float], rows: list[list[str]]) -> ExtractedTable:

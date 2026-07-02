@@ -8,7 +8,7 @@ from starlette.concurrency import run_in_threadpool
 from app.api.dependencies import get_extractor, get_store
 from app.core.config import Settings, get_settings
 from app.models import DocumentSummary, ReferenceDocumentResponse, TablesResponse
-from app.services.extractor import PdfExtractionService
+from app.services.documents.extractor import PdfExtractionService
 from app.services.storage import DocumentStore, document_id_from_sha256, sha256_file
 
 router = APIRouter()

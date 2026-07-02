@@ -1,7 +1,7 @@
 """LLM-powered reasoning enrichment via AWS Bedrock.
 
 Uses the Bedrock Converse API so the model_id is fully interchangeable —
-swap AETHER_BEDROCK_MODEL_ID to any Bedrock-supported model without code changes.
+swap AETHER_COST_ESTIMATION_BEDROCK_MODEL_ID to any Bedrock-supported model without code changes.
 """
 from __future__ import annotations
 

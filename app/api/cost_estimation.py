@@ -7,9 +7,9 @@ from fastapi.responses import StreamingResponse
 from app.api.dependencies import get_excel_exporter, get_store
 from app.core.config import Settings, get_settings
 from app.models import FieldProvenance, MeridianExtractionResponse
-from app.services.excel_populator import ExcelExportService
-from app.services.meridian import MeridianStructuredExtractionService
-from app.services.reasoning import BedrockReasoningService
+from app.services.cost_estimation.excel_populator import ExcelExportService
+from app.services.cost_estimation.meridian import MeridianStructuredExtractionService
+from app.services.cost_estimation.reasoning import BedrockReasoningService
 from app.services.storage import DocumentStore
 
 router = APIRouter()
@@ -72,7 +72,7 @@ def enrich_provenance(
     """Call AWS Bedrock to replace mechanical reasons with LLM-generated explanations.
 
     Requires the Excel export to have been run first (provenance must exist).
-    The model used is controlled by AETHER_BEDROCK_MODEL_ID (default: amazon.nova-lite-v1:0).
+    The model used is controlled by AETHER_COST_ESTIMATION_BEDROCK_MODEL_ID.
     AWS credentials must be available in the environment (IAM role, ~/.aws/credentials, or env vars).
     """
     store.load_extraction(document_id)  # 404 if unknown
@@ -84,7 +84,7 @@ def enrich_provenance(
         )
     extraction = store.load_extraction(document_id)
     service = BedrockReasoningService(
-        model_id=settings.bedrock_model_id,
+        model_id=settings.cost_estimation_bedrock_model_id,
         region=settings.bedrock_region,
     )
     enriched = service.enrich(records, extraction.filename)

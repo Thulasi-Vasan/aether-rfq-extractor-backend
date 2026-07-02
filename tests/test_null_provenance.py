@@ -12,10 +12,10 @@ from app.models import (
     TableCell,
     TableRow,
 )
-from app.services.excel_populator import FORMULA_FILL, _apply_static_formula_cache_fixes
-from app.services.excel_populator import _build_formula_record, _build_null_record
-from app.services.excel_populator import _build_provenance_record, _is_missing_excel_value
-from app.services.excel_populator import _resolve_formula_cells
+from app.services.cost_estimation.excel_populator import FORMULA_FILL, _apply_static_formula_cache_fixes
+from app.services.cost_estimation.excel_populator import _build_formula_record, _build_null_record
+from app.services.cost_estimation.excel_populator import _build_provenance_record, _is_missing_excel_value
+from app.services.cost_estimation.excel_populator import _resolve_formula_cells
 
 
 def test_unclear_logic_cell_with_value_is_reported_as_inferred():
