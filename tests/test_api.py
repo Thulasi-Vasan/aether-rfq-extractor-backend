@@ -92,7 +92,7 @@ def test_extract_operations_endpoint_returns_operations_only(monkeypatch) -> Non
             ],
         )
 
-    monkeypatch.setattr("app.main.run_machining_extraction", fake_extract)
+    monkeypatch.setattr("app.api.machining.run_machining_extraction", fake_extract)
     response = client.post(
         "/v1/machining/extract-operations",
         files={
