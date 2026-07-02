@@ -84,9 +84,7 @@ def test_extract_operations_endpoint_returns_operations_only(monkeypatch) -> Non
                 LLMOperation(
                     opn_no=20,
                     operation_name="FINAL INSPECTION USING CMM",
-                    operation_description="Inspect the machined part.",
-                    why_machine_process="CMM verifies drawing dimensions.",
-                    sequence_rationale="Final inspection follows machining.",
+                    operation_narrative="- Inspect the machined part using CMM after machining is complete.",
                     source_of_truth=[],
                 )
             ],

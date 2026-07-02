@@ -63,6 +63,11 @@ def _validate_inventory_names(result: LLMResult) -> None:
 def _extract_tool_input(response: dict) -> dict:
     """Pull the forced tool's JSON input out of a Converse response."""
     content = response.get("output", {}).get("message", {}).get("content", [])
+
+    for block in content:
+        if "text" in block:
+            log.info("LLM Thought: %s", block["text"].strip())
+
     for block in content:
         tool_use = block.get("toolUse")
         if tool_use and tool_use.get("name") == TOOL_NAME:
@@ -74,13 +79,14 @@ def _extract_tool_input(response: dict) -> dict:
     )
 
 
-def _call_bedrock(pdf_bytes: bytes, step_summary: StepFeatureSummary | None) -> dict:
+def _call_bedrock(pdf_bytes: bytes, step_summary: StepFeatureSummary | None, step_path: str) -> dict:
     settings = get_settings()
     client = get_bedrock_client()
 
     step_context = ("\n\n" + summary_to_prompt_text(step_summary)) if step_summary is not None else ""
     user_text = (
-        "Determine the ordered machining operations for this part."
+        "Determine the ordered machining operations for this part.\n"
+        f"The STEP file for this part is located at: {step_path}"
         + step_context
         + "\nThe attached PDF is the 2D engineering drawing."
     )
@@ -136,7 +142,7 @@ def extract_operations(pdf_bytes: bytes, step_path: str) -> MachiningOperationsR
         step_summary = None
         log.info("OCC disabled and USE_STATIC_SUMMARY=false: sending no STEP context to LLM")
 
-    response = _call_bedrock(pdf_bytes, step_summary)
+    response = _call_bedrock(pdf_bytes, step_summary, step_path)
 
     tool_input = _extract_tool_input(response)
     llm_result = LLMResult.model_validate(tool_input)
