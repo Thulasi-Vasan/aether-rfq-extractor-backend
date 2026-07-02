@@ -1,7 +1,7 @@
 """LLM-powered reasoning enrichment via AWS Bedrock.
 
 Uses the Bedrock Converse API so the model_id is fully interchangeable —
-swap AETHER_BEDROCK_MODEL_ID to any Bedrock-supported model without code changes.
+swap AETHER_COST_ESTIMATION_BEDROCK_MODEL_ID to any Bedrock-supported model without code changes.
 """
 from __future__ import annotations
 
@@ -123,12 +123,21 @@ class BedrockReasoningService:
         Records are processed in batches of BATCH_SIZE to avoid large slow calls.
         """
         if not records:
+            logger.info("Bedrock reasoning: no provenance records to enrich for pdf=%s", pdf_filename)
             return records
 
         reason_map: dict[str, str] = {}
         batches = [records[i:i + BATCH_SIZE] for i in range(0, len(records), BATCH_SIZE)]
+        logger.info(
+            "Bedrock reasoning: enriching records=%d batches=%d model=%s pdf=%s",
+            len(records),
+            len(batches),
+            self.model_id,
+            pdf_filename,
+        )
 
-        for batch in batches:
+        for index, batch in enumerate(batches, start=1):
+            logger.info("Bedrock reasoning: batch %d/%d fields=%d", index, len(batches), len(batch))
             prompt = _USER_TEMPLATE.format(
                 pdf_filename=pdf_filename or "RFQ document",
                 fields_json=_fields_to_prompt_payload(batch),
@@ -141,11 +150,14 @@ class BedrockReasoningService:
                     inferenceConfig={"maxTokens": 2048, "temperature": 0.2},
                 )
                 raw = response["output"]["message"]["content"][0]["text"].strip()
-                for item in self._parse_reasons(raw):
+                parsed = self._parse_reasons(raw)
+                for item in parsed:
                     reason_map[item["excel_cell"]] = item["reason"]
+                logger.info("Bedrock reasoning: batch %d/%d parsed_reasons=%d", index, len(batches), len(parsed))
             except Exception as exc:
                 logger.warning("Bedrock batch failed (%d fields), skipping batch: %s", len(batch), exc)
 
+        logger.info("Bedrock reasoning: complete parsed_reasons=%d records=%d", len(reason_map), len(records))
         return [
             r.model_copy(update={"reason": reason_map[r.excel_cell]})
             if r.excel_cell in reason_map
