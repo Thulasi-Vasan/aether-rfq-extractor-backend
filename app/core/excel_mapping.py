@@ -39,6 +39,12 @@ def _yn(value: Any) -> str | None:
     return None
 
 
+def _rs_to_lakh(value: Any) -> float | None:
+    if value is None:
+        return None
+    return float(value) / 100000
+
+
 def _get_power_val(r: Any, key: str) -> Any:
     if not hasattr(r, "pages") or not r.pages:
         return None
@@ -150,7 +156,10 @@ EXCEL_MAPPING: dict[str, Callable[[Any], Any]] = {
     "C2": lambda r: _get_header_val(r, "rfq_no"),
     "C4": lambda r: _get_header_val(r, "customer"),
     "G4": lambda r: _get_header_val(r, "annual_volume_nos"),
-    "G5": lambda r: (_get_header_val(r, "annual_volume_nos") * 1.15) if isinstance(_get_header_val(r, "annual_volume_nos"), (int, float)) else None,
+    # G5 (Annual Volume incl. Rejection) is now an in-sheet Excel formula
+    # =G4*1.15 in the template, so it renders as a traceable formula-derived
+    # (blue) cell rather than a Python-computed value. Not mapped here so the
+    # backend leaves the template formula intact.
     "C5": lambda r: _get_header_val(r, "final_part_no"),
     "C6": lambda r: _get_header_val(r, "final_part_rev_no"),
     "C7": lambda r: _get_header_val(r, "description"),
@@ -177,6 +186,15 @@ EXCEL_MAPPING: dict[str, Callable[[Any], Any]] = {
     "AC13": lambda r: _get_machining_header_val(r, "final_part_rev_no"),
     "AI13": lambda r: _get_machining_header_val(r, "machined_part_weight_kg"),
     "AC14": lambda r: _get_machining_header_val(r, "description"),
+    # Header Details (Machining-BO) — mirror of the AC/AI header onto the BO columns AQ/AW
+    "AQ10": lambda r: _get_machining_header_val(r, "rfq_no"),
+    "AQ11": lambda r: _get_machining_header_val(r, "customer"),
+    "AW11": lambda r: _get_machining_header_val(r, "annual_volume_nos"),
+    "AQ12": lambda r: _get_machining_header_val(r, "final_part_no"),
+    "AW12": lambda r: _get_machining_header_val(r, "annual_volume_including_rejection_nos"),
+    "AQ13": lambda r: _get_machining_header_val(r, "final_part_rev_no"),
+    "AW13": lambda r: _get_machining_header_val(r, "machined_part_weight_kg"),
+    "AQ14": lambda r: _get_machining_header_val(r, "description"),
 
     # Machining Summaries
     "AI42": lambda r: _get_machining_cell_summary(r, "cell_cycle_time_min"),
@@ -289,6 +307,27 @@ EXCEL_MAPPING: dict[str, Callable[[Any], Any]] = {
     "AQ27": lambda r: r.pages[2].machining_operations[9].get("description") if hasattr(r, "pages") and len(r.pages) >= 3 and hasattr(r.pages[2], "machining_operations") and isinstance(r.pages[2].machining_operations, list) and len(r.pages[2].machining_operations) > 9 else None,
     "AS27": lambda r: r.pages[2].machining_operations[9].get("cycle_time_min") if hasattr(r, "pages") and len(r.pages) >= 3 and hasattr(r.pages[2], "machining_operations") and isinstance(r.pages[2].machining_operations, list) and len(r.pages[2].machining_operations) > 9 else None,
     "AT27": lambda r: r.pages[2].machining_operations[9].get("machines_per_cell") if hasattr(r, "pages") and len(r.pages) >= 3 and hasattr(r.pages[2], "machining_operations") and isinstance(r.pages[2].machining_operations, list) and len(r.pages[2].machining_operations) > 9 else None,
+    # Machining Operations — Machine Cost (AU) and No. of Cells (AV); Amount (AW) is a template formula =AT*AV*AU
+    "AU18": lambda r: r.pages[2].machining_operations[0].get("machine_cost_rs") if hasattr(r, "pages") and len(r.pages) >= 3 and hasattr(r.pages[2], "machining_operations") and isinstance(r.pages[2].machining_operations, list) and len(r.pages[2].machining_operations) > 0 else None,
+    "AV18": lambda r: r.pages[2].machining_operations[0].get("no_of_cells") if hasattr(r, "pages") and len(r.pages) >= 3 and hasattr(r.pages[2], "machining_operations") and isinstance(r.pages[2].machining_operations, list) and len(r.pages[2].machining_operations) > 0 else None,
+    "AU19": lambda r: r.pages[2].machining_operations[1].get("machine_cost_rs") if hasattr(r, "pages") and len(r.pages) >= 3 and hasattr(r.pages[2], "machining_operations") and isinstance(r.pages[2].machining_operations, list) and len(r.pages[2].machining_operations) > 1 else None,
+    "AV19": lambda r: r.pages[2].machining_operations[1].get("no_of_cells") if hasattr(r, "pages") and len(r.pages) >= 3 and hasattr(r.pages[2], "machining_operations") and isinstance(r.pages[2].machining_operations, list) and len(r.pages[2].machining_operations) > 1 else None,
+    "AU20": lambda r: r.pages[2].machining_operations[2].get("machine_cost_rs") if hasattr(r, "pages") and len(r.pages) >= 3 and hasattr(r.pages[2], "machining_operations") and isinstance(r.pages[2].machining_operations, list) and len(r.pages[2].machining_operations) > 2 else None,
+    "AV20": lambda r: r.pages[2].machining_operations[2].get("no_of_cells") if hasattr(r, "pages") and len(r.pages) >= 3 and hasattr(r.pages[2], "machining_operations") and isinstance(r.pages[2].machining_operations, list) and len(r.pages[2].machining_operations) > 2 else None,
+    "AU21": lambda r: r.pages[2].machining_operations[3].get("machine_cost_rs") if hasattr(r, "pages") and len(r.pages) >= 3 and hasattr(r.pages[2], "machining_operations") and isinstance(r.pages[2].machining_operations, list) and len(r.pages[2].machining_operations) > 3 else None,
+    "AV21": lambda r: r.pages[2].machining_operations[3].get("no_of_cells") if hasattr(r, "pages") and len(r.pages) >= 3 and hasattr(r.pages[2], "machining_operations") and isinstance(r.pages[2].machining_operations, list) and len(r.pages[2].machining_operations) > 3 else None,
+    "AU22": lambda r: r.pages[2].machining_operations[4].get("machine_cost_rs") if hasattr(r, "pages") and len(r.pages) >= 3 and hasattr(r.pages[2], "machining_operations") and isinstance(r.pages[2].machining_operations, list) and len(r.pages[2].machining_operations) > 4 else None,
+    "AV22": lambda r: r.pages[2].machining_operations[4].get("no_of_cells") if hasattr(r, "pages") and len(r.pages) >= 3 and hasattr(r.pages[2], "machining_operations") and isinstance(r.pages[2].machining_operations, list) and len(r.pages[2].machining_operations) > 4 else None,
+    "AU23": lambda r: r.pages[2].machining_operations[5].get("machine_cost_rs") if hasattr(r, "pages") and len(r.pages) >= 3 and hasattr(r.pages[2], "machining_operations") and isinstance(r.pages[2].machining_operations, list) and len(r.pages[2].machining_operations) > 5 else None,
+    "AV23": lambda r: r.pages[2].machining_operations[5].get("no_of_cells") if hasattr(r, "pages") and len(r.pages) >= 3 and hasattr(r.pages[2], "machining_operations") and isinstance(r.pages[2].machining_operations, list) and len(r.pages[2].machining_operations) > 5 else None,
+    "AU24": lambda r: r.pages[2].machining_operations[6].get("machine_cost_rs") if hasattr(r, "pages") and len(r.pages) >= 3 and hasattr(r.pages[2], "machining_operations") and isinstance(r.pages[2].machining_operations, list) and len(r.pages[2].machining_operations) > 6 else None,
+    "AV24": lambda r: r.pages[2].machining_operations[6].get("no_of_cells") if hasattr(r, "pages") and len(r.pages) >= 3 and hasattr(r.pages[2], "machining_operations") and isinstance(r.pages[2].machining_operations, list) and len(r.pages[2].machining_operations) > 6 else None,
+    "AU25": lambda r: r.pages[2].machining_operations[7].get("machine_cost_rs") if hasattr(r, "pages") and len(r.pages) >= 3 and hasattr(r.pages[2], "machining_operations") and isinstance(r.pages[2].machining_operations, list) and len(r.pages[2].machining_operations) > 7 else None,
+    "AV25": lambda r: r.pages[2].machining_operations[7].get("no_of_cells") if hasattr(r, "pages") and len(r.pages) >= 3 and hasattr(r.pages[2], "machining_operations") and isinstance(r.pages[2].machining_operations, list) and len(r.pages[2].machining_operations) > 7 else None,
+    "AU26": lambda r: r.pages[2].machining_operations[8].get("machine_cost_rs") if hasattr(r, "pages") and len(r.pages) >= 3 and hasattr(r.pages[2], "machining_operations") and isinstance(r.pages[2].machining_operations, list) and len(r.pages[2].machining_operations) > 8 else None,
+    "AV26": lambda r: r.pages[2].machining_operations[8].get("no_of_cells") if hasattr(r, "pages") and len(r.pages) >= 3 and hasattr(r.pages[2], "machining_operations") and isinstance(r.pages[2].machining_operations, list) and len(r.pages[2].machining_operations) > 8 else None,
+    "AU27": lambda r: r.pages[2].machining_operations[9].get("machine_cost_rs") if hasattr(r, "pages") and len(r.pages) >= 3 and hasattr(r.pages[2], "machining_operations") and isinstance(r.pages[2].machining_operations, list) and len(r.pages[2].machining_operations) > 9 else None,
+    "AV27": lambda r: r.pages[2].machining_operations[9].get("no_of_cells") if hasattr(r, "pages") and len(r.pages) >= 3 and hasattr(r.pages[2], "machining_operations") and isinstance(r.pages[2].machining_operations, list) and len(r.pages[2].machining_operations) > 9 else None,
     # Assembly Summaries (Cycle Time Details)
     "W10": lambda r: _get_assembly_val(r, "cycle_time_details", "assembly", "cycle_time_min"),
     "X10": lambda r: _get_assembly_val(r, "cycle_time_details", "after_assembly_machining", "cycle_time_min"),
@@ -370,23 +409,34 @@ EXCEL_MAPPING: dict[str, Callable[[Any], Any]] = {
     "AI50": lambda r: _get_machining_resource(r, "imp_salvaging_percent"),
     "AI51": lambda r: _yn(_get_machining_resource(r, "setup_changeover_considered")),
     "AI52": lambda r: _get_machining_resource(r, "no_of_variants_planned_per_cell"),
+    # Machining-BO cell parameters in AW column (mirror of the AI column for the BO table)
+    "AW42": lambda r: _get_machining_cell_summary(r, "cell_cycle_time_min"),
+    "AW43": lambda r: _get_machining_cell_summary(r, "cell_capacity_nos"),
+    "AW44": lambda r: _get_machining_cell_summary(r, "cell_utilisation_percent"),
+    "AW45": lambda r: _get_machining_cell_summary(r, "no_of_cells"),
+    "AW47": lambda r: _get_machining_resource(r, "power_rating_for_cell_kw_hr"),
+    "AW48": lambda r: _get_machining_resource(r, "man_power_per_shift_per_cell"),
+    "AW49": lambda r: _get_machining_resource(r, "floor_area_required_per_cell_sq_m"),
+    "AW50": lambda r: _get_machining_resource(r, "imp_salvaging_percent"),
+    "AW51": lambda r: _yn(_get_machining_resource(r, "setup_changeover_considered")),
+    "AW52": lambda r: _get_machining_resource(r, "no_of_variants_planned_per_cell"),
     # Machining Operating Costs in AD and AR columns
-    "AD42": lambda r: _get_machining_op_cost(r, "Cost of Cutting tools", "amount_rs"),
+    "AD42": lambda r: _rs_to_lakh(_get_machining_op_cost(r, "Cost of Cutting tools", "amount_rs")),
     "AR42": lambda r: _get_machining_op_cost(r, "Cost of Cutting tools", "amount_rs"),
-    "AD43": lambda r: _get_machining_op_cost(r, "Cost of Tool Holders", "amount_rs"),
+    "AD43": lambda r: _rs_to_lakh(_get_machining_op_cost(r, "Cost of Tool Holders", "amount_rs")),
     "AR43": lambda r: _get_machining_op_cost(r, "Cost of Tool Holders", "amount_rs"),
     "AD44": lambda r: _get_machining_op_cost(r, "Cap Die cost", "amount_rs"),
     "AR44": lambda r: _get_machining_op_cost(r, "Cost of Probing Unit", "amount_rs"),
-    "AD45": lambda r: _get_machining_op_cost(r, "Cost of Fixtures", "amount_rs"),
+    "AD45": lambda r: _rs_to_lakh(_get_machining_op_cost(r, "Cost of Fixtures", "amount_rs")),
     "AR45": lambda r: _get_machining_op_cost(r, "Cost of Fixtures", "amount_rs"),
-    "AD46": lambda r: _get_machining_op_cost(r, "Cost of Gauges", "amount_rs"),
+    "AD46": lambda r: _rs_to_lakh(_get_machining_op_cost(r, "Cost of Gauges", "amount_rs")),
     "AR46": lambda r: _get_machining_op_cost(r, "Cost of Gauges", "amount_rs"),
-    "AD47": lambda r: _get_machining_op_cost(r, "Cost of Material Handling", "amount_rs"),
+    "AD47": lambda r: _rs_to_lakh(_get_machining_op_cost(r, "Cost of Material Handling", "amount_rs")),
     "AR47": lambda r: _get_machining_op_cost(r, "Cost of Material Handling", "amount_rs"),
     "AD48": lambda r: _get_machining_op_cost(r, "CMM fixture", "amount_rs"),
-    "AD49": lambda r: _get_machining_op_cost(r, "Coolant oil cost", "amount_rs"),
+    "AD49": lambda r: _rs_to_lakh(_get_machining_op_cost(r, "Coolant oil cost", "amount_rs")),
     "AR49": lambda r: _get_machining_op_cost(r, "Coolant oil cost", "amount_rs"),
-    "AD50": lambda r: _get_machining_op_cost(r, "DM water cost for coolant", "amount_rs"),
+    "AD50": lambda r: _rs_to_lakh(_get_machining_op_cost(r, "DM water cost for coolant", "amount_rs")),
     "AR50": lambda r: _get_machining_op_cost(r, "DM water cost for coolant", "amount_rs"),
     "AD51": lambda r: _get_machining_op_cost(r, "Barcode label", "amount_rs"),
     "AR51": lambda r: _get_machining_op_cost(r, "Barcode label", "amount_rs"),
@@ -439,97 +489,187 @@ EXCEL_MAPPING: dict[str, Callable[[Any], Any]] = {
     "K23": lambda r: _get_cap_val(r, "Core shooting M/c", "utilisation_percent"),
     "L23": lambda r: _get_cap_val(r, "Core shooting M/c", "units"),
     "M23": lambda r: _get_cap_val(r, "Core shooting M/c", "amount_per_cell_rs_lac"),
+    "N23": lambda r: _get_cap_val(r, "Core shooting M/c", "total_cost_rs_lac"),
     "K25": lambda r: _get_cap_val(r, "Core Painting Oven (if any)", "utilisation_percent"),
     "L24": lambda r: _get_cap_val(r, "Core Painting Oven (if any)", "units"),
     "M24": lambda r: _get_cap_val(r, "Core Painting Oven (if any)", "amount_per_cell_rs_lac"),
+    "N24": lambda r: _get_cap_val(r, "Core Painting Oven (if any)", "total_cost_rs_lac"),
     "K25": lambda r: _get_cap_val(r, "Thermal Decoring M/c", "utilisation_percent"),
     "L25": lambda r: _get_cap_val(r, "Thermal Decoring M/c", "units"),
     "M25": lambda r: _get_cap_val(r, "Thermal Decoring M/c", "amount_per_cell_rs_lac"),
+    "N25": lambda r: _get_cap_val(r, "Thermal Decoring M/c", "total_cost_rs_lac"),
     "K26": lambda r: _get_cap_val(r, "Crane to handle basket", "utilisation_percent"),
     "L26": lambda r: _get_cap_val(r, "Crane to handle basket", "units"),
     "M26": lambda r: _get_cap_val(r, "Crane to handle basket", "amount_per_cell_rs_lac"),
+    "N26": lambda r: _get_cap_val(r, "Crane to handle basket", "total_cost_rs_lac"),
     "K27": lambda r: _get_cap_val(r, "Vibro Decoring Machine", "utilisation_percent"),
     "L27": lambda r: _get_cap_val(r, "Vibro Decoring Machine", "units"),
     "M27": lambda r: _get_cap_val(r, "Vibro Decoring Machine", "amount_per_cell_rs_lac"),
+    "N27": lambda r: _get_cap_val(r, "Vibro Decoring Machine", "total_cost_rs_lac"),
     "K28": lambda r: _get_cap_val(r, "Tilting Machine", "utilisation_percent"),
     "L28": lambda r: _get_cap_val(r, "Tilting Machine", "units"),
     "M28": lambda r: _get_cap_val(r, "Tilting Machine", "amount_per_cell_rs_lac"),
+    "N28": lambda r: _get_cap_val(r, "Tilting Machine", "total_cost_rs_lac"),
     "K29": lambda r: _get_cap_val(r, "Vertical Machine", "utilisation_percent"),
     "L29": lambda r: _get_cap_val(r, "Vertical Machine", "units"),
     "M29": lambda r: _get_cap_val(r, "Vertical Machine", "amount_per_cell_rs_lac"),
+    "N29": lambda r: _get_cap_val(r, "Vertical Machine", "total_cost_rs_lac"),
     "K30": lambda r: _get_cap_val(r, "Stand type Machine", "utilisation_percent"),
     "L30": lambda r: _get_cap_val(r, "Stand type Machine", "units"),
     "M30": lambda r: _get_cap_val(r, "Stand type Machine", "amount_per_cell_rs_lac"),
+    "N30": lambda r: _get_cap_val(r, "Stand type Machine", "total_cost_rs_lac"),
     "K31": lambda r: _get_cap_val(r, "Hydraulic Power Pack", "utilisation_percent"),
     "L31": lambda r: _get_cap_val(r, "Hydraulic Power Pack", "units"),
     "M31": lambda r: _get_cap_val(r, "Hydraulic Power Pack", "amount_per_cell_rs_lac"),
+    "N31": lambda r: _get_cap_val(r, "Hydraulic Power Pack", "total_cost_rs_lac"),
     "K32": lambda r: _get_cap_val(r, "Holding furnace", "utilisation_percent"),
     "L32": lambda r: _get_cap_val(r, "Holding furnace", "units"),
     "M32": lambda r: _get_cap_val(r, "Holding furnace", "amount_per_cell_rs_lac"),
+    "N32": lambda r: _get_cap_val(r, "Holding furnace", "total_cost_rs_lac"),
     "K33": lambda r: _get_cap_val(r, "Band saw machine", "utilisation_percent"),
     "L33": lambda r: _get_cap_val(r, "Band saw machine", "units"),
     "M33": lambda r: _get_cap_val(r, "Band saw machine", "amount_per_cell_rs_lac"),
+    "N33": lambda r: _get_cap_val(r, "Band saw machine", "total_cost_rs_lac"),
     "K34": lambda r: _get_cap_val(r, "Circular saw cutting machine", "utilisation_percent"),
     "L34": lambda r: _get_cap_val(r, "Circular saw cutting machine", "units"),
     "M34": lambda r: _get_cap_val(r, "Circular saw cutting machine", "amount_per_cell_rs_lac"),
+    "N34": lambda r: _get_cap_val(r, "Circular saw cutting machine", "total_cost_rs_lac"),
     "K35": lambda r: _get_cap_val(r, "Knock out press", "utilisation_percent"),
     "L35": lambda r: _get_cap_val(r, "Knock out press", "units"),
     "M35": lambda r: _get_cap_val(r, "Knock out press", "amount_per_cell_rs_lac"),
+    "N35": lambda r: _get_cap_val(r, "Knock out press", "total_cost_rs_lac"),
     "K36": lambda r: _get_cap_val(r, "Linishing Machine with Dust Extractor", "utilisation_percent"),
     "L36": lambda r: _get_cap_val(r, "Linishing Machine with Dust Extractor", "units"),
     "M36": lambda r: _get_cap_val(r, "Linishing Machine with Dust Extractor", "amount_per_cell_rs_lac"),
+    "N36": lambda r: _get_cap_val(r, "Linishing Machine with Dust Extractor", "total_cost_rs_lac"),
     "K37": lambda r: _get_cap_val(r, "Shift code punching Machine", "utilisation_percent"),
     "L37": lambda r: _get_cap_val(r, "Shift code punching Machine", "units"),
     "M37": lambda r: _get_cap_val(r, "Shift code punching Machine", "amount_per_cell_rs_lac"),
+    "N37": lambda r: _get_cap_val(r, "Shift code punching Machine", "total_cost_rs_lac"),
     "K38": lambda r: _get_cap_val(r, "Welding Machine", "utilisation_percent"),
     "L38": lambda r: _get_cap_val(r, "Welding Machine", "units"),
     "M38": lambda r: _get_cap_val(r, "Welding Machine", "amount_per_cell_rs_lac"),
+    "N38": lambda r: _get_cap_val(r, "Welding Machine", "total_cost_rs_lac"),
     "J39": lambda r: _get_cap_val(r, "Bend Removal Press", "description"),
     "K39": lambda r: _get_cap_val(r, "Bend Removal Press", "utilisation_percent"),
     "L39": lambda r: _get_cap_val(r, "Bend Removal Press", "units"),
     "M39": lambda r: _get_cap_val(r, "Bend Removal Press", "amount_per_cell_rs_lac"),
+    "N39": lambda r: _get_cap_val(r, "Bend Removal Press", "total_cost_rs_lac"),
     "K40": lambda r: _get_cap_val(r, "Robot Pouring & Extraction", "utilisation_percent"),
     "L40": lambda r: _get_cap_val(r, "Robot Pouring & Extraction", "units"),
     "M40": lambda r: _get_cap_val(r, "Robot Pouring & Extraction", "amount_per_cell_rs_lac"),
+    "N40": lambda r: _get_cap_val(r, "Robot Pouring & Extraction", "total_cost_rs_lac"),
     "K41": lambda r: _get_cap_val(r, "Endoscope machine", "utilisation_percent"),
     "L41": lambda r: _get_cap_val(r, "Endoscope machine", "units"),
     "M41": lambda r: _get_cap_val(r, "Endoscope machine", "amount_per_cell_rs_lac"),
+    "N41": lambda r: _get_cap_val(r, "Endoscope machine", "total_cost_rs_lac"),
     "K42": lambda r: _get_cap_val(r, "Special Core handling / Testing", "utilisation_percent"),
     "L42": lambda r: _get_cap_val(r, "Special Core handling / Testing", "units"),
     "M42": lambda r: _get_cap_val(r, "Special Core handling / Testing", "amount_per_cell_rs_lac"),
+    "N42": lambda r: _get_cap_val(r, "Special Core handling / Testing", "total_cost_rs_lac"),
     "K43": lambda r: _get_cap_val(r, "Component Extractor or Catcher", "utilisation_percent"),
     "L43": lambda r: _get_cap_val(r, "Component Extractor or Catcher", "units"),
     "M43": lambda r: _get_cap_val(r, "Component Extractor or Catcher", "amount_per_cell_rs_lac"),
+    "N43": lambda r: _get_cap_val(r, "Component Extractor or Catcher", "total_cost_rs_lac"),
     "K44": lambda r: _get_cap_val(r, "Air Balancer", "utilisation_percent"),
     "L44": lambda r: _get_cap_val(r, "Air Balancer", "units"),
     "M44": lambda r: _get_cap_val(r, "Air Balancer", "amount_per_cell_rs_lac"),
+    "N44": lambda r: _get_cap_val(r, "Air Balancer", "total_cost_rs_lac"),
     "K45": lambda r: _get_cap_val(r, "Core Painting Oven (if any)", "utilisation_percent"),
     "L45": lambda r: _get_cap_val(r, "Core Painting Oven (if any)", "units"),
     "M45": lambda r: _get_cap_val(r, "Core Painting Oven (if any)", "amount_per_cell_rs_lac"),
-    "K46": lambda r: _get_cap_val(r, "Endoscope machine", "utilisation_percent"),
-    "L46": lambda r: _get_cap_val(r, "Endoscope machine", "units"),
-    "M46": lambda r: _get_cap_val(r, "Endoscope machine", "amount_per_cell_rs_lac"),
+    "N45": lambda r: _get_cap_val(r, "Core Painting Oven (if any)", "total_cost_rs_lac"),
+    "N46": lambda r: _get_cap_val(r, "Endoscope machine", "total_cost_rs_lac"),
     "K47": lambda r: _get_cap_val(r, "Deflashing station", "utilisation_percent"),
     "L47": lambda r: _get_cap_val(r, "Deflashing station", "units"),
     "M47": lambda r: _get_cap_val(r, "Deflashing station", "amount_per_cell_rs_lac"),
+    "N47": lambda r: _get_cap_val(r, "Deflashing station", "total_cost_rs_lac"),
     "K48": lambda r: _get_cap_val(r, "Shot blasting M/c", "utilisation_percent"),
     "L48": lambda r: _get_cap_val(r, "Shot blasting M/c", "units"),
     "M48": lambda r: _get_cap_val(r, "Shot blasting M/c", "amount_per_cell_rs_lac"),
+    "N48": lambda r: _get_cap_val(r, "Shot blasting M/c", "total_cost_rs_lac"),
     "K49": lambda r: _get_cap_val(r, "Melting furnace", "utilisation_percent"),
     "L49": lambda r: _get_cap_val(r, "Melting furnace", "units"),
     "M49": lambda r: _get_cap_val(r, "Melting furnace", "amount_per_cell_rs_lac"),
+    "N49": lambda r: _get_cap_val(r, "Melting furnace", "total_cost_rs_lac"),
     "K50": lambda r: _get_cap_val(r, "Melting furnace accessories (Fork lift, ATL, Degassing unit, Dross trolley, scrubber unit)", "utilisation_percent"),
     "L50": lambda r: _get_cap_val(r, "Melting furnace accessories (Fork lift, ATL, Degassing unit, Dross trolley, scrubber unit)", "units"),
     "M50": lambda r: _get_cap_val(r, "Melting furnace accessories (Fork lift, ATL, Degassing unit, Dross trolley, scrubber unit)", "amount_per_cell_rs_lac"),
+    "N50": lambda r: _get_cap_val(r, "Melting furnace accessories (Fork lift, ATL, Degassing unit, Dross trolley, scrubber unit)", "total_cost_rs_lac"),
     "K51": lambda r: _get_cap_val(r, "Heat Treatment Furnace (incl crane)", "utilisation_percent"),
     "L51": lambda r: _get_cap_val(r, "Heat Treatment Furnace (incl crane)", "units"),
     "M51": lambda r: _get_cap_val(r, "Heat Treatment Furnace (incl crane)", "amount_per_cell_rs_lac"),
+    "N51": lambda r: _get_cap_val(r, "Heat Treatment Furnace (incl crane)", "total_cost_rs_lac"),
     "K52": lambda r: _get_cap_val(r, "Heat Treatment BatchCode Punching M/c", "utilisation_percent"),
     "L52": lambda r: _get_cap_val(r, "Heat Treatment BatchCode Punching M/c", "units"),
     "M52": lambda r: _get_cap_val(r, "Heat Treatment BatchCode Punching M/c", "amount_per_cell_rs_lac"),
+    "N52": lambda r: _get_cap_val(r, "Heat Treatment BatchCode Punching M/c", "total_cost_rs_lac"),
     "K53": lambda r: _get_cap_val(r, "Core placement fixture", "utilisation_percent"),
     "L53": lambda r: _get_cap_val(r, "Core placement fixture", "units"),
     "M53": lambda r: _get_cap_val(r, "Core placement fixture", "amount_per_cell_rs_lac"),
+    "N53": lambda r: _get_cap_val(r, "Core placement fixture", "total_cost_rs_lac"),
+    "N54": lambda r: _get_capital_total(r),
+    # HT Cost Calculation — finance team inputs, no PDF source
+    "G118": lambda r: None,
+    "G119": lambda r: None,
+    "G120": lambda r: None,
+    "G122": lambda r: None,
+    "G125": lambda r: None,
+    # Capex summary cross-sheet reference — not available in this sheet
+    "C102": lambda r: None,
+}
+
+FORMULA_CELLS: dict[str, tuple[str, list[str]]] = {
+    "G5": ("=G4*1.15", ["G4"]),
+    "C6": ("=C5", ["C5"]),  # master mirrors the part no.; PDF rev field is unreliable
+    "AC10": ("=C2", ["C2"]),
+    "AC11": ("=C4", ["C4"]),
+    "AC12": ("=C5", ["C5"]),
+    "AC14": ("=C7", ["C7"]),
+    "AI11": ("=G4", ["G4"]),
+    "AI12": ("=+AI11*110%", ["AI11"]),
+    "AI13": ("=G8", ["G8"]),
+    "AI38": ("=SUM(AI18:AI36)", [f"AI{row}" for row in range(18, 37)]),
+    "AD42": ("=AC42*$W$5", ["AC42", "W5"]),
+    "AD43": ("=AC43*$W$5", ["AC43", "W5"]),
+    "AD45": ("=AC45*$W$5", ["AC45", "W5"]),
+    "AD46": ("=AC46*$W$5", ["AC46", "W5"]),
+    "AD47": ("=AC47*$W$5", ["AC47", "W5"]),
+    "AD49": ("=AC49*$W$5", ["AC49", "W5"]),
+    "AD50": ("=AC50*$W$5", ["AC50", "W5"]),
+    "AD52": ("=AC52*$W$5", ["AC52", "W5"]),
+    "N23": ("=(M23*L23)*V5", ["M23", "L23", "V5"]),
+    "N24": ("=M24*L23", ["M24", "L23"]),
+    "N25": ("=M25*L25", ["M25", "L25"]),
+    "N26": ("=L25*M26", ["L25", "M26"]),
+    "N27": ("=(L27*M27)*V5", ["L27", "M27", "V5"]),
+    "N28": ("=M28*L28*V5", ["M28", "L28", "V5"]),
+    "N29": ("=(M29*L28)*V5", ["M29", "L28", "V5"]),
+    "N30": ("=M30*L28", ["M30", "L28"]),
+    "N31": ("=M31*V5", ["M31", "V5"]),
+    "N32": ("=M32*L32*V5", ["M32", "L32", "V5"]),
+    "N33": ("=M33", ["M33"]),
+    "N34": ("=(M34)*V5", ["M34", "V5"]),
+    "N35": ("=M35*V5", ["M35", "V5"]),
+    "N36": ("=(M36)*V5", ["M36", "V5"]),
+    "N37": ("=(M37)*V5", ["M37", "V5"]),
+    "N38": ("=(M38)*V5", ["M38", "V5"]),
+    "N39": ("=L39*M39", ["L39", "M39"]),
+    "N40": ("=M40*V5", ["M40", "V5"]),
+    "N41": ("=(M41)", ["M41"]),
+    "N42": ("=M42*L42", ["M42", "L42"]),
+    "N43": ("=M43*V5", ["M43", "V5"]),
+    "N44": ("=M44", ["M44"]),
+    "N45": ("=(M45)*V5", ["M45", "V5"]),
+    "N46": ("=M46*V5", ["V5"]),
+    "N47": ("=M47*V5", ["M47", "V5"]),
+    "N48": ("=M48*V5", ["M48", "V5"]),
+    "N49": ("=M49*V5", ["M49", "V5"]),
+    "N50": ("=M50*V5", ["M50", "V5"]),
+    "N51": ("=M51", ["M51"]),
+    "N52": ("=(M52)*V5", ["M52", "V5"]),
+    "N53": ("=M53*V5", ["M53", "V5"]),
+    "N54": ("=SUM(N23:N53)", [f"N{row}" for row in range(23, 54)]),
 }
 
 def set_cell_value(sheet, coord: str, value: Any):
@@ -577,6 +717,16 @@ def _get_cap_val(r: Any, match_str: str, key: str, return_source: bool = False) 
         return _item_out(candidates[0], key, return_source)
     return None
 
+
+def _get_capital_total(r: Any) -> Any:
+    if not hasattr(r, "pages") or not r.pages:
+        return None
+    summary = getattr(r.pages[0], "capital_investments_summary", {})
+    if not isinstance(summary, dict):
+        summary = getattr(summary, "__dict__", {})
+    return summary.get("total_investment_rs_lac")
+
+
 def _get_op_val(r: Any, match_str: str, key: str, return_source: bool = False) -> Any:
     if not hasattr(r, "pages") or not r.pages: return None
     for cat in getattr(r.pages[0], "operating_costs", []):
@@ -607,11 +757,20 @@ CELL_FIELD_KEYS: dict[str, str] = {
     "AI11": "machining_annual_volume_nos", "AC12": "machining_final_part_no",
     "AI12": "machining_annual_volume_with_rejection", "AC13": "machining_final_part_rev_no",
     "AI13": "machining_part_weight_kg", "AC14": "machining_description",
+    "AQ10": "bo_machining_rfq_no", "AQ11": "bo_machining_customer",
+    "AW11": "bo_machining_annual_volume_nos", "AQ12": "bo_machining_final_part_no",
+    "AW12": "bo_machining_annual_volume_with_rejection", "AQ13": "bo_machining_final_part_rev_no",
+    "AW13": "bo_machining_part_weight_kg", "AQ14": "bo_machining_description",
     "AI42": "cell_cycle_time_min", "AI43": "cell_capacity_nos",
     "AI44": "cell_utilisation_percent", "AI45": "no_of_cells",
     "AI47": "power_rating_kw_hr", "AI48": "man_power_per_shift",
     "AI49": "floor_area_sq_m", "AI50": "imp_salvaging_percent",
     "AI51": "setup_changeover_considered", "AI52": "no_of_variants_per_cell",
+    "AW42": "bo_cell_cycle_time_min", "AW43": "bo_cell_capacity_nos",
+    "AW44": "bo_cell_utilisation_percent", "AW45": "bo_no_of_cells",
+    "AW47": "bo_power_rating_kw_hr", "AW48": "bo_man_power_per_shift",
+    "AW49": "bo_floor_area_sq_m", "AW50": "bo_imp_salvaging_percent",
+    "AW51": "bo_setup_changeover_considered", "AW52": "bo_no_of_variants_per_cell",
     "L12": "sand_core_1_cavities", "M12": "sand_core_1_cycle_time", "N12": "sand_core_1_output_hr",
     "L13": "sand_core_2_cavities", "M13": "sand_core_2_cycle_time", "N13": "sand_core_2_output_hr",
     "L14": "sand_core_3_cavities", "M14": "sand_core_3_cycle_time", "N14": "sand_core_3_output_hr",
@@ -643,6 +802,16 @@ CELL_FIELD_KEYS: dict[str, str] = {
     "AQ25": "machining_op_8_description", "AS25": "machining_op_8_cycle_time", "AT25": "machining_op_8_machines",
     "AQ26": "machining_op_9_description", "AS26": "machining_op_9_cycle_time", "AT26": "machining_op_9_machines",
     "AQ27": "machining_op_10_description", "AS27": "machining_op_10_cycle_time", "AT27": "machining_op_10_machines",
+    "AU18": "machining_op_1_machine_cost", "AV18": "machining_op_1_cells",
+    "AU19": "machining_op_2_machine_cost", "AV19": "machining_op_2_cells",
+    "AU20": "machining_op_3_machine_cost", "AV20": "machining_op_3_cells",
+    "AU21": "machining_op_4_machine_cost", "AV21": "machining_op_4_cells",
+    "AU22": "machining_op_5_machine_cost", "AV22": "machining_op_5_cells",
+    "AU23": "machining_op_6_machine_cost", "AV23": "machining_op_6_cells",
+    "AU24": "machining_op_7_machine_cost", "AV24": "machining_op_7_cells",
+    "AU25": "machining_op_8_machine_cost", "AV25": "machining_op_8_cells",
+    "AU26": "machining_op_9_machine_cost", "AV26": "machining_op_9_cells",
+    "AU27": "machining_op_10_machine_cost", "AV27": "machining_op_10_cells",
     "W10": "assembly_cycle_time_min", "X10": "aam_cycle_time_min",
     "W11": "assembly_output_per_hr", "X11": "aam_output_per_hr",
     "W12": "assembly_cell_capacity", "X12": "aam_cell_capacity",
@@ -726,7 +895,6 @@ CELL_FIELD_KEYS: dict[str, str] = {
     "K43": "component_extractor_utilisation", "L43": "component_extractor_units", "M43": "component_extractor_amount",
     "K44": "air_balancer_utilisation", "L44": "air_balancer_units", "M44": "air_balancer_amount",
     "K45": "core_painting_oven_2_utilisation", "L45": "core_painting_oven_2_units", "M45": "core_painting_oven_2_amount",
-    "K46": "endoscope_machine_2_utilisation", "L46": "endoscope_machine_2_units", "M46": "endoscope_machine_2_amount",
     "K47": "deflashing_station_utilisation", "L47": "deflashing_station_units", "M47": "deflashing_station_amount",
     "K48": "shot_blasting_mc_utilisation", "L48": "shot_blasting_mc_units", "M48": "shot_blasting_mc_amount",
     "K49": "melting_furnace_utilisation", "L49": "melting_furnace_units", "M49": "melting_furnace_amount",
@@ -735,7 +903,45 @@ CELL_FIELD_KEYS: dict[str, str] = {
     "K51": "ht_furnace_utilisation", "L51": "ht_furnace_units", "M51": "ht_furnace_amount",
     "K52": "ht_batch_code_mc_utilisation", "L52": "ht_batch_code_mc_units", "M52": "ht_batch_code_mc_amount",
     "K53": "core_placement_fixture_utilisation", "L53": "core_placement_fixture_units", "M53": "core_placement_fixture_amount",
+    "G118": "ht_no_of_layers", "G119": "ht_parts_per_layer", "G120": "ht_parts_per_basket",
+    "G122": "ht_part_wt", "G125": "ht_batch_price",
+    "C102": "capex_as_per_project_details",
 }
+
+CELL_FIELD_KEYS.update({
+    "N23": "core_shooting_total_cost",
+    "N24": "core_painting_oven_total_cost",
+    "N25": "thermal_decoring_total_cost",
+    "N26": "crane_basket_total_cost",
+    "N27": "vibro_decoring_machine_total_cost",
+    "N28": "tilting_machine_total_cost",
+    "N29": "vertical_machine_total_cost",
+    "N30": "stand_type_machine_total_cost",
+    "N31": "hydraulic_power_pack_total_cost",
+    "N32": "holding_furnace_total_cost",
+    "N33": "band_saw_total_cost",
+    "N34": "circular_saw_total_cost",
+    "N35": "knock_out_press_total_cost",
+    "N36": "linishing_machine_total_cost",
+    "N37": "shift_code_punching_total_cost",
+    "N38": "welding_machine_total_cost",
+    "N39": "bend_removal_press_total_cost",
+    "N40": "robot_pouring_total_cost",
+    "N41": "endoscope_machine_total_cost",
+    "N42": "special_core_handling_total_cost",
+    "N43": "component_extractor_total_cost",
+    "N44": "air_balancer_total_cost",
+    "N45": "core_painting_oven_2_total_cost",
+    "N46": "endoscope_machine_2_total_cost",
+    "N47": "deflashing_station_total_cost",
+    "N48": "shot_blasting_mc_total_cost",
+    "N49": "melting_furnace_total_cost",
+    "N50": "melting_furnace_accessories_total_cost",
+    "N51": "ht_furnace_total_cost",
+    "N52": "ht_batch_code_mc_total_cost",
+    "N53": "core_placement_fixture_total_cost",
+    "N54": "total_capital_investment",
+})
 
 # Human-readable labels for the provenance panel UI.
 CELL_FIELD_LABELS: dict[str, str] = {
@@ -750,11 +956,20 @@ CELL_FIELD_LABELS: dict[str, str] = {
     "AI11": "Machining Annual Volume (Nos)", "AC12": "Machining Final Part No.",
     "AI12": "Machining Annual Volume incl. Rejection", "AC13": "Machining Part Rev. No.",
     "AI13": "Machining Part Weight (kg)", "AC14": "Machining Description",
+    "AQ10": "BO Machining RFQ No.", "AQ11": "BO Machining Customer",
+    "AW11": "BO Machining Annual Volume (Nos)", "AQ12": "BO Machining Final Part No.",
+    "AW12": "BO Machining Annual Volume incl. Rejection", "AQ13": "BO Machining Part Rev. No.",
+    "AW13": "BO Machining Part Weight (kg)", "AQ14": "BO Machining Description",
     "AI42": "Cell Cycle Time (min)", "AI43": "Cell Capacity (Nos)",
     "AI44": "Cell Utilisation (%)", "AI45": "No. of Cells",
     "AI47": "Power Rating (kW/hr)", "AI48": "Manpower per Shift",
     "AI49": "Floor Area (sq.m)", "AI50": "Imp. Salvaging (%)",
     "AI51": "Setup/Changeover Considered", "AI52": "No. of Variants per Cell",
+    "AW42": "BO Cell Cycle Time (min)", "AW43": "BO Cell Capacity (Nos)",
+    "AW44": "BO Cell Utilisation (%)", "AW45": "BO No. of Cells",
+    "AW47": "BO Power Rating (kW/hr)", "AW48": "BO Manpower per Shift",
+    "AW49": "BO Floor Area (sq.m)", "AW50": "BO Imp. Salvaging (%)",
+    "AW51": "BO Setup/Changeover Considered", "AW52": "BO No. of Variants per Cell",
     "L12": "Sand Core 1 — Cavities", "M12": "Sand Core 1 — Cycle Time (min)", "N12": "Sand Core 1 — Output/hr",
     "L13": "Sand Core 2 — Cavities", "M13": "Sand Core 2 — Cycle Time (min)", "N13": "Sand Core 2 — Output/hr",
     "L14": "Sand Core 3 — Cavities", "M14": "Sand Core 3 — Cycle Time (min)", "N14": "Sand Core 3 — Output/hr",
@@ -786,6 +1001,16 @@ CELL_FIELD_LABELS: dict[str, str] = {
     "AQ25": "Machining Op 8 — Description", "AS25": "Machining Op 8 — Cycle Time", "AT25": "Machining Op 8 — Machines/Cell",
     "AQ26": "Machining Op 9 — Description", "AS26": "Machining Op 9 — Cycle Time", "AT26": "Machining Op 9 — Machines/Cell",
     "AQ27": "Machining Op 10 — Description", "AS27": "Machining Op 10 — Cycle Time", "AT27": "Machining Op 10 — Machines/Cell",
+    "AU18": "Machining Op 1 — Machine Cost (₹)", "AV18": "Machining Op 1 — No. of Cells",
+    "AU19": "Machining Op 2 — Machine Cost (₹)", "AV19": "Machining Op 2 — No. of Cells",
+    "AU20": "Machining Op 3 — Machine Cost (₹)", "AV20": "Machining Op 3 — No. of Cells",
+    "AU21": "Machining Op 4 — Machine Cost (₹)", "AV21": "Machining Op 4 — No. of Cells",
+    "AU22": "Machining Op 5 — Machine Cost (₹)", "AV22": "Machining Op 5 — No. of Cells",
+    "AU23": "Machining Op 6 — Machine Cost (₹)", "AV23": "Machining Op 6 — No. of Cells",
+    "AU24": "Machining Op 7 — Machine Cost (₹)", "AV24": "Machining Op 7 — No. of Cells",
+    "AU25": "Machining Op 8 — Machine Cost (₹)", "AV25": "Machining Op 8 — No. of Cells",
+    "AU26": "Machining Op 9 — Machine Cost (₹)", "AV26": "Machining Op 9 — No. of Cells",
+    "AU27": "Machining Op 10 — Machine Cost (₹)", "AV27": "Machining Op 10 — No. of Cells",
     "W10": "Assembly Cycle Time (min)", "X10": "After-Assembly Machining Cycle Time (min)",
     "W11": "Assembly Output/hr", "X11": "AAM Output/hr",
     "W12": "Assembly Cell Capacity", "X12": "AAM Cell Capacity",
@@ -869,7 +1094,6 @@ CELL_FIELD_LABELS: dict[str, str] = {
     "K43": "Component Extractor/Catcher — Utilisation (%)", "L43": "Component Extractor/Catcher — Units", "M43": "Component Extractor/Catcher — Amount (₹ Lac)",
     "K44": "Air Balancer — Utilisation (%)", "L44": "Air Balancer — Units", "M44": "Air Balancer — Amount (₹ Lac)",
     "K45": "Core Painting Oven [2] — Utilisation (%)", "L45": "Core Painting Oven [2] — Units", "M45": "Core Painting Oven [2] — Amount (₹ Lac)",
-    "K46": "Endoscope Machine [2] — Utilisation (%)", "L46": "Endoscope Machine [2] — Units", "M46": "Endoscope Machine [2] — Amount (₹ Lac)",
     "K47": "Deflashing Station — Utilisation (%)", "L47": "Deflashing Station — Units", "M47": "Deflashing Station — Amount (₹ Lac)",
     "K48": "Shot Blasting M/c — Utilisation (%)", "L48": "Shot Blasting M/c — Units", "M48": "Shot Blasting M/c — Amount (₹ Lac)",
     "K49": "Melting Furnace — Utilisation (%)", "L49": "Melting Furnace — Units", "M49": "Melting Furnace — Amount (₹ Lac)",
@@ -878,13 +1102,50 @@ CELL_FIELD_LABELS: dict[str, str] = {
     "K51": "Heat Treatment Furnace — Utilisation (%)", "L51": "Heat Treatment Furnace — Units", "M51": "Heat Treatment Furnace — Amount (₹ Lac)",
     "K52": "HT Batch Code Punching M/c — Utilisation (%)", "L52": "HT Batch Code Punching M/c — Units", "M52": "HT Batch Code Punching M/c — Amount (₹ Lac)",
     "K53": "Core Placement Fixture — Utilisation (%)", "L53": "Core Placement Fixture — Units", "M53": "Core Placement Fixture — Amount (₹ Lac)",
+    "G118": "HT — No. of Layers", "G119": "HT — Parts per Layer", "G120": "HT — Parts per Basket",
+    "G122": "HT — Part Weight", "G125": "HT — Batch Price",
+    "C102": "Capex as per Project Capex-Opex Details",
 }
+
+CELL_FIELD_LABELS.update({
+    "N23": "Core Shooting M/c — Total Cost (₹ Lac)",
+    "N24": "Core Painting Oven — Total Cost (₹ Lac)",
+    "N25": "Thermal Decoring M/c — Total Cost (₹ Lac)",
+    "N26": "Crane to Handle Basket — Total Cost (₹ Lac)",
+    "N27": "Vibro Decoring Machine — Total Cost (₹ Lac)",
+    "N28": "Tilting Machine — Total Cost (₹ Lac)",
+    "N29": "Vertical Machine — Total Cost (₹ Lac)",
+    "N30": "Stand Type Machine — Total Cost (₹ Lac)",
+    "N31": "Hydraulic Power Pack — Total Cost (₹ Lac)",
+    "N32": "Holding Furnace — Total Cost (₹ Lac)",
+    "N33": "Band Saw Machine — Total Cost (₹ Lac)",
+    "N34": "Circular Saw Cutting Machine — Total Cost (₹ Lac)",
+    "N35": "Knock Out Press — Total Cost (₹ Lac)",
+    "N36": "Linishing Machine — Total Cost (₹ Lac)",
+    "N37": "Shift Code Punching Machine — Total Cost (₹ Lac)",
+    "N38": "Welding Machine — Total Cost (₹ Lac)",
+    "N39": "Bend Removal Press — Total Cost (₹ Lac)",
+    "N40": "Robot Pouring & Extraction — Total Cost (₹ Lac)",
+    "N41": "Endoscope Machine — Total Cost (₹ Lac)",
+    "N42": "Special Core Handling/Testing — Total Cost (₹ Lac)",
+    "N43": "Component Extractor/Catcher — Total Cost (₹ Lac)",
+    "N44": "Air Balancer — Total Cost (₹ Lac)",
+    "N45": "Core Painting Oven [2] — Total Cost (₹ Lac)",
+    "N46": "Endoscope Machine [2] — Total Cost (₹ Lac)",
+    "N47": "Deflashing Station — Total Cost (₹ Lac)",
+    "N48": "Shot Blasting M/c — Total Cost (₹ Lac)",
+    "N49": "Melting Furnace — Total Cost (₹ Lac)",
+    "N50": "Melting Furnace Accessories — Total Cost (₹ Lac)",
+    "N51": "Heat Treatment Furnace — Total Cost (₹ Lac)",
+    "N52": "HT Batch Code Punching M/c — Total Cost (₹ Lac)",
+    "N53": "Core Placement Fixture — Total Cost (₹ Lac)",
+    "N54": "Total Capital Investment (₹ Lac)",
+})
 
 # Cells whose value is hardcoded or derived rather than read directly from a PDF cell.
 CELL_SOURCE_TYPES: dict[str, str] = {
     "C10": "default",   # hardcoded "Domestic"
     "D10": "default",   # hardcoded "CIF"
-    "G5": "derived",    # annual_volume_nos * 1.15
     "W29": "derived",   # boolean → Y/N
     "X29": "derived",
     "W33": "derived",
@@ -892,6 +1153,64 @@ CELL_SOURCE_TYPES: dict[str, str] = {
     "W52": "derived",
     "X52": "derived",
     "AI51": "derived",
+    "AW51": "derived",  # boolean → Y/N (BO machining mirror of AI51)
+    # Packaging LBH — same lbh_mm source as G10-G12, finance team input
+    "AM10": "unclear_logic",
+    "AM11": "unclear_logic",
+    "AM12": "unclear_logic",
+    # Fields not sourced from PDF or formula — require finance team input.
+    "G10": "unclear_logic",   # LBH Length (mm)
+    "G11": "unclear_logic",   # LBH Breadth (mm)
+    "G12": "unclear_logic",   # LBH Height (mm)
+    "K26": "unclear_logic",   # Crane to Handle Basket — Utilisation (%)
+    "K29": "unclear_logic",   # Vertical Machine — Utilisation (%)
+    "K41": "unclear_logic",   # Endoscope Machine — Utilisation (%)
+    "K44": "unclear_logic",   # Air Balancer — Utilisation (%)
+    "K47": "unclear_logic",   # Deflashing Station — Utilisation (%)
+    "K50": "unclear_logic",   # Melting Furnace Accessories — Utilisation (%)
+    "L24": "unclear_logic",   # Core Painting Oven — Units
+    "L26": "unclear_logic",   # Crane to Handle Basket — Units
+    "L29": "unclear_logic",   # Vertical Machine — Units
+    "L30": "unclear_logic",   # Stand Type Machine — Units
+    "L31": "unclear_logic",   # Hydraulic Power Pack — Units
+    "L41": "unclear_logic",   # Endoscope Machine — Units
+    "L44": "unclear_logic",   # Air Balancer — Units
+    "L47": "unclear_logic",   # Deflashing Station — Units
+    "L50": "unclear_logic",   # Melting Furnace Accessories — Units
+    "M17": "unclear_logic",   # Casting — Cycle Time (min)
+    "M26": "unclear_logic",   # Crane to Handle Basket — Amount (₹ Lac)
+    "M29": "unclear_logic",   # Vertical Machine — Amount (₹ Lac)
+    "M41": "unclear_logic",   # Endoscope Machine — Amount (₹ Lac)
+    "M44": "unclear_logic",   # Air Balancer — Amount (₹ Lac)
+    "M47": "unclear_logic",   # Deflashing Station — Amount (₹ Lac)
+    "N68": "unclear_logic",   # Others Testing Cost/Part (₹)
+    "R64": "unclear_logic",   # Melting Furnace Capacity
+    "S17": "unclear_logic",   # Floor Space per Cell (sq.m)
+    "S25": "unclear_logic",   # Core Handling Stand (₹ Lac)
+    "S27": "unclear_logic",   # Core Visual Inspection / Table / Tools (₹ Lac)
+    "S39": "unclear_logic",   # Cell Formation Cost (₹ Lac)
+    "S40": "unclear_logic",   # Filing & Grinding Tools (₹ Lac)
+    "S62": "unclear_logic",   # Casting Cell Power (kW/hr)
+    "S64": "unclear_logic",   # Melting Furnace Power (kW/hr)
+    "W17": "unclear_logic",   # Assembly Station — Capex (₹)
+    "W18": "unclear_logic",   # Pokayoke System — Capex (₹)
+    "X17": "unclear_logic",   # Assembly Station — Operating (₹)
+    "X18": "unclear_logic",   # Pokayoke System — Operating (₹)
+    "AH36": "unclear_logic",  # Material Handling in Machine Shop (₹)
+    "G118": "unclear_logic",  # HT — No. of Layers
+    "G119": "unclear_logic",  # HT — Parts per Layer
+    "G120": "unclear_logic",  # HT — Parts per Basket
+    "G122": "unclear_logic",  # HT — Part Weight
+    "G125": "unclear_logic",  # HT — Batch Price
+    "C102": "unclear_logic",  # Capex as per Project Capex-Opex Details (cross-sheet, not available)
+    # Computed in the broader costing model (cross-sheet VLOOKUPs / formula mirrors),
+    # not present in the RFQ PDF — never populated by extraction, so not "from PDF".
+    "Y35": "unclear_logic",   # VMC — MHR rate (master: VLOOKUP into MHR(6))
+    "Y38": "unclear_logic",   # Turning Centre — MHR rate
+    "Y39": "unclear_logic",   # Washing Machine — MHR rate
+    "Y40": "unclear_logic",   # Leak Testing Machine — MHR rate (master: Assembly sheet ref)
+    "Y43": "unclear_logic",   # Consumable Tools — MHR rate
+    # AI38 is a same-sheet aggregate (=SUM(AI18:AI36)) — handled as a FORMULA_CELL.
 }
 
 
@@ -918,8 +1237,10 @@ _SOURCE_GETTERS: dict[str, Callable] = {
 
 _SOURCE_LINE_RE = re.compile(
     r'"(?P<coord>[A-Z]+\d+)":\s*lambda r:\s*'
+    r"(?:_rs_to_lakh\()?"
     r"(?P<getter>" + "|".join(_SOURCE_GETTERS) + r")"
     r'\(r,\s*"(?P<a>(?:[^"\\]|\\.)*)"(?:,\s*"(?P<b>(?:[^"\\]|\\.)*)")?\)'
+    r"\)?"
 )
 
 # Index-based machining-operation lambdas:
@@ -1009,7 +1330,7 @@ PAGE_CONTENT_FIELD: dict[str, str] = {
     "gdc_estimation": "capital_investments",
     "machining_estimation": "machining_operations",
     "assembly_estimation": "assembly_resource_requirements",
-    "packing_estimation": "packing_arrangements",
+    "packing_estimation": "packing_box_quantity_working",
 }
 
 
@@ -1037,6 +1358,7 @@ _PAGE_BY_HELPER: dict[str, int] = {
     "_get_machining_header_val": 3,
     "_get_assembly_val": 5,
     "_get_assembly_investment": 5,
+    "_get_capital_total": 1,
 }
 
 _MAPPING_LINE_RE = re.compile(r'^\s*"(?P<coord>[A-Z]+\d+)":\s*lambda r:\s*(?P<body>.+),?\s*$')

@@ -110,6 +110,7 @@ class MeridianStructuredPage(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     page_number: int
+    physical_page_number: int | None = None
     page_type: str
     title: str | None = None
     header: dict[str, Any] = Field(default_factory=dict)
@@ -135,7 +136,16 @@ class ReferenceDocumentResponse(BaseModel):
     message: str | None = None
 
 
-SourceType = Literal["pdf_cell", "derived", "default", "inferred", "not_available", "null"]
+SourceType = Literal[
+    "pdf_cell",
+    "derived",
+    "default",
+    "inferred",
+    "formula",
+    "formula_fallback",
+    "not_available",
+    "null",
+]
 NullCategory = Literal[
     "data_absent",
     "derived_dependency_missing",
@@ -153,6 +163,7 @@ class FieldProvenance(BaseModel):
     value: Any
     source_type: SourceType
     reason: str
+    formula: str | None = None
     null_category: NullCategory | None = None
     blocks_approval: bool = False
     pdf_filename: str | None = None
