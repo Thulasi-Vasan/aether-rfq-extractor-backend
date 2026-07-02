@@ -1,4 +1,5 @@
 import io
+import logging
 
 from fastapi import APIRouter, Depends, Query
 from fastapi.exceptions import HTTPException
@@ -13,6 +14,7 @@ from app.services.cost_estimation.reasoning import BedrockReasoningService
 from app.services.storage import DocumentStore
 
 router = APIRouter()
+log = logging.getLogger(__name__)
 
 
 @router.get("/v1/documents/{document_id}/meridian", response_model=MeridianExtractionResponse)
@@ -21,9 +23,17 @@ def get_meridian_extraction(
     include_raw: bool = Query(default=False),
     store: DocumentStore = Depends(get_store),
 ) -> MeridianExtractionResponse:
+    log.info("Meridian extraction request: document_id=%s include_raw=%s", document_id, include_raw)
     extraction = store.load_extraction(document_id)
     pdf_path = store.upload_path(document_id)
-    return MeridianStructuredExtractionService().build(extraction, pdf_path=pdf_path, include_raw=include_raw)
+    response = MeridianStructuredExtractionService().build(extraction, pdf_path=pdf_path, include_raw=include_raw)
+    log.info(
+        "Meridian extraction complete: document_id=%s pages=%d include_raw=%s",
+        document_id,
+        len(response.pages),
+        include_raw,
+    )
+    return response
 
 
 @router.get("/v1/documents/{document_id}/export-excel", response_class=StreamingResponse)
@@ -32,6 +42,7 @@ def export_excel(
     store: DocumentStore = Depends(get_store),
     exporter: ExcelExportService = Depends(get_excel_exporter),
 ) -> StreamingResponse:
+    log.info("Excel export request: document_id=%s", document_id)
     extraction = store.load_extraction(document_id)
     pdf_path = store.upload_path(document_id)
     structured_data = MeridianStructuredExtractionService().build(extraction, pdf_path=pdf_path)
@@ -41,6 +52,13 @@ def export_excel(
     store.save_provenance(document_id, provenance)
 
     filename = f"{extraction.filename.rsplit('.', 1)[0]}_exported.xlsx" if extraction.filename else "exported.xlsx"
+    log.info(
+        "Excel export complete: document_id=%s filename=%s bytes=%d provenance_records=%d",
+        document_id,
+        filename,
+        len(excel_bytes),
+        len(provenance),
+    )
     return StreamingResponse(
         io.BytesIO(excel_bytes),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -53,13 +71,16 @@ def get_provenance(
     document_id: str,
     store: DocumentStore = Depends(get_store),
 ) -> list[FieldProvenance]:
+    log.info("Provenance request: document_id=%s", document_id)
     store.load_extraction(document_id)  # 404 if document unknown
     records = store.load_provenance(document_id)
     if records is None:
+        log.warning("Provenance not found: document_id=%s", document_id)
         raise HTTPException(
             status_code=404,
             detail="Provenance not found. Export the Excel file first to generate provenance.",
         )
+    log.info("Provenance loaded: document_id=%s records=%d", document_id, len(records))
     return records
 
 
@@ -75,9 +96,15 @@ def enrich_provenance(
     The model used is controlled by AETHER_COST_ESTIMATION_BEDROCK_MODEL_ID.
     AWS credentials must be available in the environment (IAM role, ~/.aws/credentials, or env vars).
     """
+    log.info(
+        "Provenance enrichment request: document_id=%s model=%s",
+        document_id,
+        settings.cost_estimation_bedrock_model_id,
+    )
     store.load_extraction(document_id)  # 404 if unknown
     records = store.load_provenance(document_id)
     if records is None:
+        log.warning("Provenance enrichment skipped, records missing: document_id=%s", document_id)
         raise HTTPException(
             status_code=404,
             detail="Provenance not found. Export the Excel file first.",
@@ -89,4 +116,11 @@ def enrich_provenance(
     )
     enriched = service.enrich(records, extraction.filename)
     store.save_provenance(document_id, enriched)
+    changed = sum(1 for before, after in zip(records, enriched) if before.reason != after.reason)
+    log.info(
+        "Provenance enrichment complete: document_id=%s records=%d updated_reasons=%d",
+        document_id,
+        len(enriched),
+        changed,
+    )
     return enriched
