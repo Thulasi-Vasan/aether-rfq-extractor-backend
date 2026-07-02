@@ -29,6 +29,7 @@ from .machining import (
     PdfAnchor,
     StepFeatureSummary,
 )
+from .classifier import ClassificationCategory, ClassificationResponse
 
 __all__ = [
     "AnchorCandidate",
@@ -60,4 +61,6 @@ __all__ = [
     "TableRow",
     "TablesResponse",
     "WarningSeverity",
+    "ClassificationCategory",
+    "ClassificationResponse",
 ]

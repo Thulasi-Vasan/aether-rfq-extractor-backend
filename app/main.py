@@ -6,7 +6,8 @@ from fastapi.exceptions import HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api import cost_estimation, documents, machining
+from app.api import cost_estimation, documents, machining,doc_classification
+
 from app.core.config import get_settings
 from app.models import ErrorResponse
 from app.services.errors import ExtractorError
@@ -52,6 +53,7 @@ def create_app() -> FastAPI:
     app.include_router(documents.router)
     app.include_router(cost_estimation.router)
     app.include_router(machining.router)
+    app.include_router(doc_classification.router)
 
     return app
 
