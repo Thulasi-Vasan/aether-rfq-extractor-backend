@@ -16,6 +16,10 @@ dependencies = [
     "boto3>=1.34.0",
     "pillow>=12.2.0",
     "cadquery>=2.7.0",
+    "sqlalchemy>=2.0.51",
+    "passlib>=1.7.4",
+    "bcrypt==3.2.2",
+    "pyjwt>=2.13.0",
 ]
 
 [project.optional-dependencies]
