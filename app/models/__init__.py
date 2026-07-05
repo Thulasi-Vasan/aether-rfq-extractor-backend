@@ -30,6 +30,7 @@ from .machining import (
     StepFeatureSummary,
 )
 from .classifier import ClassificationCategory, ClassificationResponse
+from .job import ClassificationJob
 
 __all__ = [
     "AnchorCandidate",
@@ -63,4 +64,5 @@ __all__ = [
     "WarningSeverity",
     "ClassificationCategory",
     "ClassificationResponse",
+    "ClassificationJob",
 ]

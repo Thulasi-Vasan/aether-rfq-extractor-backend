@@ -12,11 +12,11 @@ from app.services.machining.service import (
     extract_machining_operations as run_machining_extraction,
 )
 
-router = APIRouter()
+from fastapi import Depends
+from app.api.dependencies import get_current_user
 log = logging.getLogger(__name__)
 
 
-@router.post("/v1/machining/extract-operations", response_model=MachiningOperationsResponse)
 async def extract_machining_operations(
     drawing_pdf: UploadFile = File(..., description="2D engineering drawing (PDF)"),
     step_file: UploadFile = File(..., description="3D model (STEP/.stp/.step)"),

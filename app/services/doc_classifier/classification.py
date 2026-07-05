@@ -9,7 +9,7 @@ import fitz
 from app.core.config import get_settings
 from app.models import ClassificationCategory, ClassificationResponse
 from app.services.doc_classifier.cad_renderer import CADRendererService
-
+from app.core.prompts import get_pdf_classification_prompt, get_cad_classification_prompt
 
 class VLMClassificationService:
     def __init__(self):
@@ -31,7 +31,7 @@ class VLMClassificationService:
         else:
             raise ValueError(f"Unsupported file extension: {ext}")
 
-        return self._invoke_bedrock(filename, base64_image, prompt)
+        return self._invoke_bedrock(base64_image, prompt)
 
     def _render_pdf_to_base64_png(self, pdf_path: Path) -> str:
         doc = fitz.open(str(pdf_path))
@@ -41,33 +41,12 @@ class VLMClassificationService:
         return base64.b64encode(png_data).decode("utf-8")
 
     def _get_pdf_prompt(self) -> str:
-        return (
-            "You are an expert manufacturing engineer classifying documents. Analyze the attached document page.\n"
-            "Categorize the document into EXACTLY ONE of these four categories: 'Casting', 'Machining', 'Assembly', or 'Unclassified'.\n\n"
-            "CRITICAL RULE FOR 'Unclassified':\n"
-            "If the document contains a commercial RFQ, a standards sheet, a RFQ estimate, a pricing sheet, a cost estimate, a, an invoice, a spreadsheet printout, or if it primarily consists of text and tables WITHOUT a central 2D/3D engineering schematic of a physical part, you MUST categorize it as 'Unclassified'. DO NOT confuse a table/pricing list in an RFQ with a Bill of Materials (BOM) in an Assembly drawing.\n\n"
-            "Visual Cues for Engineering Drawings ONLY:\n"
-            "- Assembly: An engineering blueprint containing BOTH a schematic of assembled parts AND a BOM/Parts List, or exploded views.\n"
-            "- Casting: An engineering blueprint with notes regarding 'Draft Angle', 'Unspecified Radii', 'Shrinkage', or showing organic geometries.\n"
-            "- Machining: An engineering blueprint showing precise cross-sections and extensive geometric dimensioning and tolerancing (GD&T) frames.\n\n"
-            "Return the result as a JSON object with three keys: 'category' (string: 'Casting', 'Machining', 'Assembly', or 'Unclassified'), "
-            "'confidence' (float between 0 and 1), and 'reasoning' (string explaining the cues found)."
-        )
+        return get_pdf_classification_prompt()
 
     def _get_cad_prompt(self) -> str:
-        return (
-            "You are an expert manufacturing engineer. Analyze the attached 2D render of a 3D CAD model. "
-            "Categorize the part into exactly one of these four categories: 'Casting', 'Machining', 'Assembly', or 'Unclassified'.\n\n"
-            "Visual Cues:\n"
-            "- Assembly: Look for distinct nested structures, multiple visually separated components, or fasteners.\n"
-            "- Casting: Look for organic B-spline surfaces, fillets everywhere, smooth transitions, parting lines.\n"
-            "- Machining: Look for sharp edges, planar faces, threaded holes, cylindrical features indicating subtractive manufacturing.\n"
-            "- Unclassified: If it does not appear to be an engineering model of these types.\n\n"
-            "Return the result as a JSON object with three keys: 'category' (string: 'Casting', 'Machining', 'Assembly', or 'Unclassified'), "
-            "'confidence' (float between 0 and 1), and 'reasoning' (string explaining the cues found)."
-        )
+        return get_cad_classification_prompt()
 
-    def _invoke_bedrock(self, filename: str, base64_image: str, prompt: str) -> ClassificationResponse:
+    def _invoke_bedrock(self, base64_image: str, prompt: str) -> dict:
         messages = [
             {
                 "role": "user",
@@ -110,11 +89,25 @@ class VLMClassificationService:
             # Fallback if json parsing fails completely
             raise ValueError(f"Failed to parse model output as JSON. Output was: {content}")
 
+        return result
+
+    def classify_file(self, file_path: Path, filename: str) -> ClassificationResponse:
+        ext = file_path.suffix.lower()
+        if ext == ".pdf":
+            base64_image = self._render_pdf_to_base64_png(file_path)
+            prompt = self._get_pdf_prompt()
+        elif ext in {".step", ".stp"}:
+            base64_image = CADRendererService.render_step_to_base64_png(file_path)
+            prompt = self._get_cad_prompt()
+        else:
+            raise ValueError(f"Unsupported file extension: {ext}")
+
+        result = self._invoke_bedrock(base64_image, prompt)
+
         category_str = result.get('category')
         try:
             category = ClassificationCategory(category_str)
         except ValueError:
-            # Coerce mapping if the model capitalized differently
             mapped = {'casting': ClassificationCategory.casting,
                       'machining': ClassificationCategory.machining,
                       'assembly': ClassificationCategory.assembly,
@@ -127,3 +120,95 @@ class VLMClassificationService:
             confidence=float(result.get('confidence', 0.0)),
             reasoning=result.get('reasoning', '')
         )
+
+
+class BatchClassificationService:
+    def __init__(self):
+        self.vlm = VLMClassificationService()
+
+    def classify_batch(self, files: list[Path]) -> list[ClassificationResponse]:
+        pdf_files = [f for f in files if f.suffix.lower() == ".pdf" and not f.name.startswith("._")]
+        step_files = [f for f in files if f.suffix.lower() in {".step", ".stp"} and not f.name.startswith("._")]
+
+        from app.core.prompts import get_pdf_classification_prompt, get_cad_classification_prompt
+        
+        results = []
+        pdf_results = {}
+        
+        for pdf in pdf_files:
+            try:
+                base64_image = self.vlm._render_pdf_to_base64_png(pdf)
+                prompt = get_pdf_classification_prompt()
+                result = self.vlm._invoke_bedrock(base64_image, prompt)
+                
+                cat_str = result.get("category", "Unclassified")
+                mapped_cat = ClassificationCategory.unclassified
+                if cat_str == "Casting": mapped_cat = ClassificationCategory.casting
+                elif cat_str == "Machining": mapped_cat = ClassificationCategory.machining
+                elif cat_str == "Assembly": mapped_cat = ClassificationCategory.assembly
+                
+                resp = ClassificationResponse(
+                    filename=pdf.name,
+                    category=mapped_cat,
+                    confidence=float(result.get("confidence", 0.0)),
+                    reasoning=result.get("reasoning", "")
+                )
+                pdf_results[pdf.name] = resp
+                results.append(resp)
+            except Exception as e:
+                print(f"Failed to classify {pdf.name}: {e}")
+                resp = ClassificationResponse(
+                    filename=pdf.name,
+                    category=ClassificationCategory.unclassified,
+                    confidence=0.0,
+                    reasoning=f"Error: {e}"
+                )
+                pdf_results[pdf.name] = resp
+                results.append(resp)
+
+        for step in step_files:
+            try:
+                # 1. Direct filename correlation (if STP stem is in PDF stem or vice versa)
+                step_stem = step.stem.lower()
+                matched_resp = None
+                for pdf_name, resp in pdf_results.items():
+                    pdf_stem = Path(pdf_name).stem.lower()
+                    if step_stem in pdf_stem or pdf_stem in step_stem:
+                        matched_resp = resp
+                        break
+                
+                if matched_resp:
+                    # Inherit PDF classification
+                    results.append(ClassificationResponse(
+                        filename=step.name,
+                        category=matched_resp.category,
+                        confidence=0.9,
+                        reasoning="Inherited classification from matching PDF document."
+                    ))
+                else:
+                    base64_image = CADRendererService.render_step_to_base64_png(step)
+                    prompt = get_cad_classification_prompt()
+                    result = self.vlm._invoke_bedrock(base64_image, prompt)
+                    
+                    cat_str = result.get("category", "Unclassified")
+                    mapped_cat = ClassificationCategory.unclassified
+                    if cat_str == "Casting": mapped_cat = ClassificationCategory.casting
+                    elif cat_str == "Machining": mapped_cat = ClassificationCategory.machining
+                    elif cat_str == "Assembly": mapped_cat = ClassificationCategory.assembly
+                    
+                    results.append(ClassificationResponse(
+                        filename=step.name,
+                        category=mapped_cat,
+                        confidence=float(result.get("confidence", 0.0)),
+                        reasoning=result.get("reasoning", "")
+                    ))
+            except Exception as e:
+                print(f"Failed to classify {step.name}: {e}")
+                results.append(ClassificationResponse(
+                    filename=step.name,
+                    category=ClassificationCategory.unclassified,
+                    confidence=0.0,
+                    reasoning=f"Error: {e}"
+                ))
+
+        return results
