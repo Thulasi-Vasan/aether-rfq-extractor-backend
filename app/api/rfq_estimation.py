@@ -5,11 +5,12 @@ import logging
 import os
 import tempfile
 
-from fastapi import File, UploadFile
+from fastapi import Depends, File, UploadFile
 from fastapi.exceptions import HTTPException
 from fastapi.responses import StreamingResponse
 from starlette.concurrency import run_in_threadpool
 
+from app.core.config import Settings, get_settings
 from app.models.rfq_estimation import PartImageResponse, RfqEstimationRequest
 from app.services.doc_classifier.cad_renderer import CADRendererService
 from app.services.rfq_estimation import render_estimation_pdf
@@ -42,12 +43,23 @@ def generate_estimation_pdf(payload: RfqEstimationRequest) -> StreamingResponse:
 
 async def render_part_image(
     step_file: UploadFile = File(..., description="3D model (STEP/.stp/.step)"),
+    settings: Settings = Depends(get_settings),
 ) -> PartImageResponse:
     """Render a STEP file to a PNG snapshot for the report's "Part Image" slot.
 
     Reuses the same cadquery-based renderer the document classifier already
-    uses for CAD files, so no new native-lib dependency is introduced.
+    uses for CAD files, so no new native-lib dependency is introduced. Gated by
+    Settings.enable_cad_part_image so machines without cadquery installed can
+    still run everything else (the main PDF endpoint doesn't need it) — the
+    frontend already treats this endpoint as best-effort and falls back to the
+    report's placeholder box on any failure.
     """
+    if not settings.enable_cad_part_image:
+        raise HTTPException(
+            status_code=501,
+            detail="CAD part-image rendering is disabled (AETHER_ENABLE_CAD_PART_IMAGE=false).",
+        )
+
     step_bytes = await step_file.read()
     if not step_bytes:
         raise HTTPException(status_code=400, detail="Empty step_file upload.")
@@ -62,6 +74,11 @@ async def render_part_image(
         base64_png = await run_in_threadpool(
             CADRendererService.render_step_to_base64_png, tmp_path
         )
+    except ImportError as exc:
+        raise HTTPException(
+            status_code=501,
+            detail="cadquery is not installed — set AETHER_ENABLE_CAD_PART_IMAGE=false to hide this feature.",
+        ) from exc
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Part image render failed: {exc}") from exc
     finally:
