@@ -45,36 +45,48 @@ def _rs_to_lakh(value: Any) -> float | None:
     return float(value) / 100000
 
 
-def _get_power_val(r: Any, key: str) -> Any:
+def _get_power_val(r: Any, key: str, return_source: bool = False) -> Any:
     if not hasattr(r, "pages") or not r.pages:
         return None
     power = getattr(r.pages[0], "power_rating_details", {})
+    if return_source:
+        sources = power.get("_sources", {}) if isinstance(power, dict) else getattr(power, "_sources", {})
+        return sources.get(key) if isinstance(sources, dict) else None
     if isinstance(power, dict):
         return power.get(key)
     return getattr(power, key, None)
 
-def _get_die_val(r: Any, index: int, key: str) -> Any:
+def _get_die_val(r: Any, index: int, key: str, return_source: bool = False) -> Any:
     if not hasattr(r, "pages") or not r.pages:
         return None
     die = getattr(r.pages[0], "die_details", {})
     items = die.get("capital_items", []) if isinstance(die, dict) else getattr(die, "capital_items", [])
     if items and len(items) > index:
         item = items[index]
+        if return_source:
+            sources = item.get("_sources", {}) if isinstance(item, dict) else getattr(item, "_sources", {})
+            return sources.get(key) if isinstance(sources, dict) else None
         return item.get(key) if isinstance(item, dict) else getattr(item, key, None)
     return None
 
-def _get_die_life(r: Any, key: str) -> Any:
+def _get_die_life(r: Any, key: str, return_source: bool = False) -> Any:
     if not hasattr(r, "pages") or not r.pages:
         return None
     die = getattr(r.pages[0], "die_details", {})
     life = die.get("life", {}) if isinstance(die, dict) else getattr(die, "life", {})
+    if return_source:
+        sources = life.get("_sources", {}) if isinstance(life, dict) else getattr(life, "_sources", {})
+        return sources.get(key) if isinstance(sources, dict) else None
     return life.get(key) if isinstance(life, dict) else getattr(life, key, None)
 
 
-def _get_header_val(r: Any, key: str) -> Any:
+def _get_header_val(r: Any, key: str, return_source: bool = False) -> Any:
     if not hasattr(r, "pages") or not r.pages:
         return None
     header = getattr(r.pages[0], "header", {})
+    if return_source:
+        sources = header.get("_sources", {}) if isinstance(header, dict) else getattr(header, "_sources", {})
+        return sources.get(key) if isinstance(sources, dict) else None
     if isinstance(header, dict):
         return header.get(key)
     return getattr(header, key, None)
@@ -84,10 +96,13 @@ def _get_casting_val(r: Any, key: str, return_source: bool = False) -> Any:
         return None
     return _dict_out(getattr(r.pages[0], "casting_cell_details", {}), key, return_source)
 
-def _get_machining_header_val(r: Any, key: str) -> Any:
+def _get_machining_header_val(r: Any, key: str, return_source: bool = False) -> Any:
     if not hasattr(r, "pages") or len(r.pages) < 3:
         return None
     header = getattr(r.pages[2], "header", {})
+    if return_source:
+        sources = header.get("_sources", {}) if isinstance(header, dict) else getattr(header, "_sources", {})
+        return sources.get(key) if isinstance(sources, dict) else None
     if isinstance(header, dict):
         return header.get(key)
     return getattr(header, key, None)
@@ -1224,13 +1239,17 @@ CELL_SOURCE_TYPES: dict[str, str] = {
 # source-getter call with return_source=True, so value and source stay in lockstep.
 # ---------------------------------------------------------------------------
 _SOURCE_GETTERS: dict[str, Callable] = {
+    "_get_header_val": _get_header_val,
     "_get_cap_val": _get_cap_val,
     "_get_op_val": _get_op_val,
     "_get_machine_val": _get_machine_val,
     "_get_testing_val": _get_testing_val,
+    "_get_power_val": _get_power_val,
+    "_get_die_life": _get_die_life,
     "_get_machining_op_val": _get_machining_op_val,
     "_get_machining_op_cost": _get_machining_op_cost,
     "_get_casting_val": _get_casting_val,
+    "_get_machining_header_val": _get_machining_header_val,
     "_get_machining_cell_summary": _get_machining_cell_summary,
     "_get_machining_resource": _get_machining_resource,
 }
@@ -1287,6 +1306,20 @@ def _build_source_mapping() -> dict[str, Callable]:
         mapping[coord] = (
             lambda r, i=int(match.group("idx")), k=match.group("key"): _machining_op_index_source(r, i, k)
         )
+
+    header_sources = {
+        "G10": "lbh_mm",
+        "G11": "lbh_mm",
+        "G12": "lbh_mm",
+        "AM10": "lbh_mm",
+        "AM11": "lbh_mm",
+        "AM12": "lbh_mm",
+    }
+    for coord, key in header_sources.items():
+        mapping[coord] = lambda r, k=key: _get_header_val(r, k, return_source=True)
+
+    mapping["M55"] = lambda r: _get_die_val(r, 0, "no_of_dies", return_source=True)
+
     return mapping
 
 

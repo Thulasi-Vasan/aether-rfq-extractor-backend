@@ -184,6 +184,122 @@ def labeled_src(
     return None
 
 
+def normalize_label(value: str | None) -> str:
+    """Normalize table labels for layout-tolerant matching."""
+    return re.sub(r"[^a-z0-9]+", "", one_line(value).lower())
+
+
+def label_matches(value: str | None, labels: tuple[str, ...]) -> bool:
+    normalized = normalize_label(value)
+    return any(
+        normalized == normalize_label(label) or normalized.startswith(normalize_label(label))
+        for label in labels
+    )
+
+
+def row_has_label_before_value(row: list[str], labels: tuple[str, ...], value_column: int) -> bool:
+    return any(label_matches(cell_value, labels) for cell_value in row[:value_column])
+
+
+def next_non_empty_cell(
+    row: list[str],
+    cells: list[list[TableCell | None]],
+    row_index: int,
+    start_column: int,
+) -> tuple[str, TableCell | None]:
+    return nth_non_empty_cell(row, cells, row_index, start_column, 1)
+
+
+def nth_non_empty_cell(
+    row: list[str],
+    cells: list[list[TableCell | None]],
+    row_index: int,
+    start_column: int,
+    ordinal: int,
+) -> tuple[str, TableCell | None]:
+    seen = 0
+    for column_index in range(start_column + 1, len(row)):
+        value = clean_text(row[column_index])
+        if value:
+            seen += 1
+            if seen == ordinal:
+                return value, cell_at(cells, row_index, column_index)
+    return "", None
+
+
+def labeled_value_and_source(
+    rows: list[list[str]],
+    cells: list[list[TableCell | None]],
+    table_id: str,
+    labels: tuple[str, ...],
+    *,
+    ordinal: int = 1,
+    start: int = 0,
+) -> tuple[str, dict | None]:
+    for row_index, row in enumerate(rows[start:], start=start):
+        for column_index, value in enumerate(row):
+            if not label_matches(value, labels):
+                continue
+            raw_value, value_cell = nth_non_empty_cell(row, cells, row_index, column_index, ordinal)
+            return raw_value, src(table_id, value_cell)
+    return "", None
+
+
+def column_for_label(row: list[str], labels: tuple[str, ...], default: int) -> int:
+    for column_index, value in enumerate(row):
+        if label_matches(value, labels):
+            return column_index
+    return default
+
+
+def header_value_and_source(
+    rows: list[list[str]],
+    cells: list[list[TableCell | None]],
+    table_id: str,
+    fixed_row: int,
+    fixed_column: int,
+    labels: tuple[str, ...],
+) -> tuple[str, dict | None]:
+    """Read a header value from a fixed position, or fall back to its label.
+
+    The legacy Meridian sheets are stable enough for fixed coordinates, but
+    generated PDFs can include blank spacer columns that shift values. We only
+    trust the fixed coordinate when the expected label is structurally present
+    to its left in the same row; otherwise we find the label and take the next
+    non-empty cell to its right.
+    """
+    fixed_value = cell(rows, fixed_row, fixed_column)
+    fixed_cell = cell_at(cells, fixed_row, fixed_column)
+    fixed_row_values = rows[fixed_row] if 0 <= fixed_row < len(rows) else []
+    if row_has_label_before_value(fixed_row_values, labels, fixed_column):
+        return fixed_value, src(table_id, fixed_cell)
+
+    for row_index, row in enumerate(rows):
+        for column_index, value in enumerate(row):
+            if not label_matches(value, labels):
+                continue
+            fallback_value, fallback_cell = next_non_empty_cell(row, cells, row_index, column_index)
+            return fallback_value, src(table_id, fallback_cell)
+
+    return fixed_value, src(table_id, fixed_cell)
+
+
+def build_header(
+    rows: list[list[str]],
+    cells: list[list[TableCell | None]],
+    table_id: str,
+    specs: dict[str, tuple[int, int, tuple[str, ...], Any]],
+) -> dict[str, Any]:
+    header: dict[str, Any] = {}
+    sources: dict[str, dict | None] = {}
+    for key, (row_index, column_index, labels, parser) in specs.items():
+        raw_value, source = header_value_and_source(rows, cells, table_id, row_index, column_index, labels)
+        header[key] = parser(raw_value)
+        sources[key] = source
+    header["_sources"] = {key: source for key, source in sources.items() if source}
+    return header
+
+
 def find_text_in_tables(
     tables: list[ExtractedTable], search_text: str, *, page_number: int | None = None
 ) -> tuple[ExtractedTable, TableCell, int, int] | None:
@@ -511,34 +627,59 @@ class MeridianStructuredExtractionService:
         tid = table.table_id if table else "p1_t1"
         page_warnings: list[ExtractionWarning] = []
 
-        header = {
-            "rfq_no": cell(rows, 1, 2),
-            "date": parse_date(cell(rows, 1, 9)),
-            "customer": cell(rows, 2, 2),
-            "annual_volume_nos": parse_int(cell(rows, 2, 9)),
-            "annual_volume_including_rejection_nos": parse_int(cell(rows, 3, 9)),
-            "final_part_no": cell(rows, 3, 2),
-            "final_part_rev_no": cell(rows, 4, 2),
-            "description": cell(rows, 5, 2),
-            "alloy": cell(rows, 6, 2),
-            "alternate_alloy_proposed_by_scl": cell(rows, 7, 2),
-            "machined_part_weight_kg": parse_float(cell(rows, 4, 9)),
-            "casting_weight_kg": parse_float(cell(rows, 5, 9)),
-            "lbh_mm": parse_lbh(cell(rows, 6, 9)),
-            "takt_time_min": parse_float(cell(rows, 7, 9)),
+        header = build_header(
+            rows,
+            cells,
+            tid,
+            {
+                "rfq_no": (1, 2, ("RFQ No.",), null_if_blank),
+                "date": (1, 9, ("Date",), parse_date),
+                "customer": (2, 2, ("Customer",), null_if_blank),
+                "annual_volume_nos": (2, 9, ("Annual volume (Nos)",), parse_int),
+                "annual_volume_including_rejection_nos": (
+                    3,
+                    9,
+                    ("Annual volume including rejection", "Annual volume incl. rejection"),
+                    parse_int,
+                ),
+                "final_part_no": (3, 2, ("Final Part No.",), null_if_blank),
+                "final_part_rev_no": (4, 2, ("Final Part Rev No.",), null_if_blank),
+                "description": (5, 2, ("Description",), null_if_blank),
+                "alloy": (6, 2, ("Alloy",), null_if_blank),
+                "alternate_alloy_proposed_by_scl": (
+                    7,
+                    2,
+                    ("Alternate alloy proposed by SCL",),
+                    null_if_blank,
+                ),
+                "machined_part_weight_kg": (4, 9, ("Machined part wt (kg)",), parse_float),
+                "casting_weight_kg": (5, 9, ("Casting Weight (Kg)",), parse_float),
+                "lbh_mm": (6, 9, ("LBH (mm)",), parse_lbh),
+                "takt_time_min": (7, 9, ("Takt time (min)", "Takt Time (min)"), parse_float),
+            },
+        )
+
+        output_header_index = find_row_index(
+            rows,
+            lambda row: row_has_text(row, "No of cavities") and row_has_text(row, "Cycle Time"),
+            8,
+        )
+        output_header = rows[output_header_index] if output_header_index is not None else []
+        output_columns = {
+            "no_of_cavities_or_loading": column_for_label(output_header, ("No of cavities/ Loading", "No of cavities"), 3),
+            "cycle_time_min": column_for_label(output_header, ("Cycle Time (min)",), 4),
+            "output_per_hr": column_for_label(output_header, ("Output /hr",), 5),
         }
 
         output_machine_details = []
         for index in range(9, min(20, len(rows))):
             row = rows[index]
             raw_operation = clean_text(row[0] if row else "")
-            value_row = row
             value_index = index
             if raw_operation.startswith("Output/"):
                 parts = [part.strip() for part in raw_operation.splitlines() if part.strip()]
                 operation = parts[-1] if len(parts) > 1 else ""
                 if index + 1 < len(rows):
-                    value_row = rows[index + 1]
                     value_index = index + 1
             else:
                 operation = one_line(raw_operation)
@@ -547,35 +688,52 @@ class MeridianStructuredExtractionService:
             output_machine_details.append(
                 {
                     "operation": operation,
-                    "no_of_cavities_or_loading": parse_int(value_row[3] if len(value_row) > 3 else ""),
-                    "cycle_time_min": parse_float(value_row[4] if len(value_row) > 4 else ""),
-                    "output_per_hr": parse_int(value_row[5] if len(value_row) > 5 else ""),
+                    "no_of_cavities_or_loading": parse_int(cell(rows, value_index, output_columns["no_of_cavities_or_loading"])),
+                    "cycle_time_min": parse_float(cell(rows, value_index, output_columns["cycle_time_min"])),
+                    "output_per_hr": parse_int(cell(rows, value_index, output_columns["output_per_hr"])),
                     "_sources": {
-                        "no_of_cavities_or_loading": src(tid, cell_at(cells, value_index, 3)),
-                        "cycle_time_min": src(tid, cell_at(cells, value_index, 4)),
-                        "output_per_hr": src(tid, cell_at(cells, value_index, 5)),
+                        "no_of_cavities_or_loading": src(tid, cell_at(cells, value_index, output_columns["no_of_cavities_or_loading"])),
+                        "cycle_time_min": src(tid, cell_at(cells, value_index, output_columns["cycle_time_min"])),
+                        "output_per_hr": src(tid, cell_at(cells, value_index, output_columns["output_per_hr"])),
                     },
                 }
             )
 
+        casting_category, casting_category_source = labeled_value_and_source(rows, cells, tid, ("Casting Category",))
+        cells_planned, cells_planned_source = labeled_value_and_source(rows, cells, tid, ("No of casting cells planned",))
+        sand_core_weight, sand_core_weight_source = labeled_value_and_source(rows, cells, tid, ("Weight of Sand core/ part",))
+        casting_manpower, casting_manpower_source = labeled_value_and_source(rows, cells, tid, ("Man power / shift/ cell",))
+        floor_space, floor_space_source = labeled_value_and_source(rows, cells, tid, ("Floor space /cell",))
+        shot_blasting_type, shot_blasting_source = labeled_value_and_source(rows, cells, tid, ("Type of shot blasting",))
+        if one_line(shot_blasting_type).lower() == "hanger":
+            continuation = one_line(cell(rows, int(shot_blasting_source["row"]) + 1, int(shot_blasting_source["col"]))) if shot_blasting_source else ""
+            if continuation:
+                shot_blasting_type = f"{shot_blasting_type} {continuation}"
+        surface_coating, surface_coating_source = labeled_value_and_source(rows, cells, tid, ("Surface coating involved",))
         casting_cell_details = {
-            "casting_category": one_line(cell(rows, 11, 10)),
-            "no_of_casting_cells_planned": parse_int(cell(rows, 12, 10)),
-            "weight_of_sand_core_per_part_kg": parse_float(cell(rows, 13, 10)),
-            "man_power_per_shift_per_cell": parse_float(cell(rows, 14, 10)),
-            "floor_space_per_cell_sq_m": parse_float(cell(rows, 15, 10)),
-            "shot_blasting_type": " ".join(part for part in [one_line(cell(rows, 17, 10)), one_line(cell(rows, 18, 10))] if part),
-            "surface_coating_involved": cell(rows, 19, 10),
+            "casting_category": one_line(casting_category),
+            "no_of_casting_cells_planned": parse_int(cells_planned),
+            "weight_of_sand_core_per_part_kg": parse_float(sand_core_weight),
+            "man_power_per_shift_per_cell": parse_float(casting_manpower),
+            "floor_space_per_cell_sq_m": parse_float(floor_space),
+            "shot_blasting_type": one_line(shot_blasting_type),
+            "surface_coating_involved": surface_coating,
             "_sources": {
-                "shot_blasting_type": src(tid, cell_at(cells, 17, 10)),
+                "casting_category": casting_category_source,
+                "no_of_casting_cells_planned": cells_planned_source,
+                "weight_of_sand_core_per_part_kg": sand_core_weight_source,
+                "man_power_per_shift_per_cell": casting_manpower_source,
+                "floor_space_per_cell_sq_m": floor_space_source,
+                "shot_blasting_type": shot_blasting_source,
+                "surface_coating_involved": surface_coating_source,
             },
         }
 
         capital_investments = self._page_1_capital(rows, cells, tid)
         operating_costs = self._page_1_operating(rows, cells, tid)
-        die_details = self._page_1_die_details(rows, operating_costs)
+        die_details = self._page_1_die_details(rows, cells, tid, operating_costs)
         testing_cost_details = self._page_1_testing(rows, cells, tid)
-        power_rating_details = self._page_1_power(rows)
+        power_rating_details = self._page_1_power(rows, cells, tid)
         approval = {
             "prepared_by": "EA / KVG",
             "approved_by": "JR",
@@ -624,12 +782,32 @@ class MeridianStructuredExtractionService:
         table_id: str = "p1_t1",
     ) -> list[dict[str, Any]]:
         cells = cells or []
+        header_index = find_row_index(
+            rows,
+            lambda row: row_has_text(row, "Capital Investments") and row_has_text(row, "Utilisation"),
+            20,
+        )
+        header = rows[header_index] if header_index is not None else []
+        start_index = (header_index + 1) if header_index is not None else 21
+        total_index = find_row_index(
+            rows,
+            lambda row: any(one_line(value).lower().startswith("total investment") for value in row[:2]),
+            start_index,
+        )
+        end_index = total_index if total_index is not None else min(58, len(rows))
+        columns = {
+            "description": 1,
+            "utilisation_percent": column_for_label(header, ("Utilisation%",), 2),
+            "units": column_for_label(header, ("No of M/cs/ No of Units", "No of M/cs", "No of Units"), 3),
+            "amount_per_cell_rs_lac": column_for_label(header, ("Amount /cell", "Amount / cell"), 4),
+            "total_cost_rs_lac": column_for_label(header, ("Total Cost",), 5),
+        }
         groups: list[dict[str, Any]] = []
         current: dict[str, Any] | None = None
-        for index in range(21, min(54, len(rows))):
+        for index in range(start_index, min(end_index, len(rows))):
             row = rows[index]
             label = reverse_vertical_label(row[0] if row else "")
-            description = one_line(row[1] if len(row) > 1 else "")
+            description = one_line(cell(rows, index, columns["description"]))
             if description == "Band saw machine":
                 current = {"category": "Post casting", "items": []}
                 groups.append(current)
@@ -643,25 +821,33 @@ class MeridianStructuredExtractionService:
             current["items"].append(
                 {
                     "description": description,
-                    "utilisation_percent": parse_percent(row[2] if len(row) > 2 else ""),
-                    "units": parse_int(row[3] if len(row) > 3 else ""),
-                    "amount_per_cell_rs_lac": parse_float(row[4] if len(row) > 4 else ""),
-                    "total_cost_rs_lac": parse_float(row[5] if len(row) > 5 else ""),
+                    "utilisation_percent": parse_percent(cell(rows, index, columns["utilisation_percent"])),
+                    "units": parse_int(cell(rows, index, columns["units"])),
+                    "amount_per_cell_rs_lac": parse_float(cell(rows, index, columns["amount_per_cell_rs_lac"])),
+                    "total_cost_rs_lac": parse_float(cell(rows, index, columns["total_cost_rs_lac"])),
                     "_sources": {
-                        "description": src(table_id, cell_at(cells, index, 1)),
-                        "utilisation_percent": src(table_id, cell_at(cells, index, 2)),
-                        "units": src(table_id, cell_at(cells, index, 3)),
-                        "amount_per_cell_rs_lac": src(table_id, cell_at(cells, index, 4)),
-                        "total_cost_rs_lac": src(table_id, cell_at(cells, index, 5)),
+                        "description": src(table_id, cell_at(cells, index, columns["description"])),
+                        "utilisation_percent": src(table_id, cell_at(cells, index, columns["utilisation_percent"])),
+                        "units": src(table_id, cell_at(cells, index, columns["units"])),
+                        "amount_per_cell_rs_lac": src(table_id, cell_at(cells, index, columns["amount_per_cell_rs_lac"])),
+                        "total_cost_rs_lac": src(table_id, cell_at(cells, index, columns["total_cost_rs_lac"])),
                     },
                 }
             )
         return groups
 
     def _page_1_capital_total(self, rows: list[list[str]]) -> float | None:
-        for row in rows:
-            if len(row) > 5 and one_line(row[1]).lower().startswith("total investment"):
-                return parse_float(row[5])
+        header_index = find_row_index(
+            rows,
+            lambda row: row_has_text(row, "Capital Investments") and row_has_text(row, "Total Cost"),
+            20,
+        )
+        total_column = column_for_label(rows[header_index] if header_index is not None else [], ("Total Cost",), 5)
+        start_index = (header_index + 1) if header_index is not None else 21
+        for index in range(start_index, min(len(rows), start_index + 45)):
+            row = rows[index]
+            if any(one_line(value).lower().startswith("total investment") for value in row[:2]):
+                return parse_float(cell(rows, index, total_column))
         return None
 
     def _page_1_assumptions(self, rows: list[list[str]]) -> list[dict[str, Any]]:
@@ -675,33 +861,54 @@ class MeridianStructuredExtractionService:
         table_id: str = "p1_t1",
     ) -> list[dict[str, Any]]:
         cells = cells or []
+        header_index = find_row_index(
+            rows,
+            lambda row: row_has_text(row, "Operating Cost") and row_has_text(row, "Amount"),
+            20,
+        )
+        header = rows[header_index] if header_index is not None else []
+        amount_column = column_for_label(header, ("Amount (Rs.)", "Amount"), 10)
+        operating_header_column = column_for_label(header, ("Operating Cost (Rs. Lac)", "Operating Cost"), 7)
+        next_column_has_text = any(one_line(cell(rows, index, operating_header_column + 1)) for index in range((header_index or 20) + 1, min(len(rows), (header_index or 20) + 8)))
+        description_column = operating_header_column + 1 if next_column_has_text else operating_header_column
+        group_column = max(0, description_column - 1)
+        start_index = (header_index + 1) if header_index is not None else 21
         groups: list[dict[str, Any]] = []
         current: dict[str, Any] | None = None
-        for index in range(21, min(58, len(rows))):
+        for index in range(start_index, min(len(rows), start_index + 40)):
             row = rows[index]
-            label = reverse_vertical_label(row[7] if len(row) > 7 else "")
+            label = reverse_vertical_label(cell(rows, index, group_column))
             if label:
                 current = {"category": label, "items": []}
                 groups.append(current)
             if current is None:
                 continue
-            description = one_line(row[8] if len(row) > 8 else "")
-            if not description or description.lower().startswith("power rating"):
+            description = one_line(cell(rows, index, description_column))
+            if not description or description.lower().startswith(("power rating", "total investment")):
                 continue
             current["items"].append(
                 {
                     "description": description,
-                    "amount_rs_lac": parse_float(row[10] if len(row) > 10 else ""),
+                    "amount_rs_lac": parse_float(cell(rows, index, amount_column)),
                     "_sources": {
-                        "description": src(table_id, cell_at(cells, index, 8)),
-                        "amount_rs_lac": src(table_id, cell_at(cells, index, 10)),
+                        "description": src(table_id, cell_at(cells, index, description_column)),
+                        "amount_rs_lac": src(table_id, cell_at(cells, index, amount_column)),
                     },
                 }
             )
         return groups
 
-    def _page_1_die_details(self, rows: list[list[str]], operating_costs: list[dict[str, Any]]) -> dict[str, Any]:
+    def _page_1_die_details(
+        self,
+        rows: list[list[str]],
+        cells: list[list[TableCell | None]],
+        table_id: str,
+        operating_costs: list[dict[str, Any]],
+    ) -> dict[str, Any]:
         del operating_costs
+        no_of_dies, no_of_dies_source = labeled_value_and_source(rows, cells, table_id, ("Die and corebox", "No of Dies"))
+        die_life, die_life_source = labeled_value_and_source(rows, cells, table_id, ("Die life (shots)",))
+        core_box_life, core_box_life_source = labeled_value_and_source(rows, cells, table_id, ("Core box life (shots)",))
         die_operating = []
         for index in range(53, 58):
             description = one_line(cell(rows, index, 8))
@@ -715,15 +922,22 @@ class MeridianStructuredExtractionService:
         return {
             "capital_items": [
                 {
-                    "description": one_line(cell(rows, 53, 1)),
-                    "no_of_dies": parse_int(cell(rows, 53, 3)),
+                    "description": "Die and corebox (if any) No of Dies & cost (Rs. Lac)",
+                    "no_of_dies": parse_int(no_of_dies),
                     "amount_per_cell_rs_lac": parse_float(cell(rows, 53, 4)),
                     "total_cost_rs_lac": parse_float(cell(rows, 53, 5)),
+                    "_sources": {
+                        "no_of_dies": no_of_dies_source,
+                    },
                 }
             ],
             "life": {
-                "die_life_shots": parse_int(cell(rows, 54, 5)),
-                "core_box_life_shots": parse_int(cell(rows, 55, 5)),
+                "die_life_shots": parse_int(die_life),
+                "core_box_life_shots": parse_int(core_box_life),
+                "_sources": {
+                    "die_life_shots": die_life_source,
+                    "core_box_life_shots": core_box_life_source,
+                },
             },
             "operating_items": die_operating,
             "operating_total_rs_lac": parse_float(cell(rows, 57, 10)),
@@ -759,21 +973,39 @@ class MeridianStructuredExtractionService:
             "Others (if any)": "others_cost_per_part_rs",
             "Total Testing Cost/ Part": "total_testing_cost_per_part_rs",
         }
-        for index in range(56, min(66, len(rows))):
-            row = rows[index]
-            key = mapping.get(one_line(row[1] if len(row) > 1 else ""))
-            if key:
-                values[key] = parse_float(row[5] if len(row) > 5 else "")
-                values["_sources"][key] = src(table_id, cell_at(cells, index, 5))
+        for label, key in mapping.items():
+            raw_value, source = labeled_value_and_source(rows, cells, table_id, (label,))
+            values[key] = parse_float(raw_value)
+            values["_sources"][key] = source
         return values
 
-    def _page_1_power(self, rows: list[list[str]]) -> dict[str, Any]:
+    def _page_1_power(
+        self,
+        rows: list[list[str]],
+        cells: list[list[TableCell | None]] | None = None,
+        table_id: str = "p1_t1",
+    ) -> dict[str, Any]:
+        cells = cells or []
+        power_start = find_row_index(rows, lambda row: row_has_text(row, "Power Rating Details"), 50)
+        start = (power_start + 1) if power_start is not None else 0
+        casting_cell, casting_cell_source = labeled_value_and_source(rows, cells, table_id, ("Casting Cell",), start=start)
+        melting_capacity, melting_capacity_source = labeled_value_and_source(rows, cells, table_id, ("Meltng. Furn. Capacity",), start=start)
+        melting_power, melting_power_source = labeled_value_and_source(rows, cells, table_id, ("Meltng. Furn. Capacity",), ordinal=2, start=start)
+        heat_treatment, heat_treatment_source = labeled_value_and_source(rows, cells, table_id, ("Heat treatment",), start=start)
+        shot_blasting, shot_blasting_source = labeled_value_and_source(rows, cells, table_id, ("Shot blasting",), start=start)
         return {
-            "casting_cell_kw_hr": parse_float(cell(rows, 59, 10)),
-            "melting_furnace_capacity": one_line(cell(rows, 61, 9)),
-            "melting_furnace_kw_hr": parse_float(cell(rows, 61, 10)),
-            "heat_treatment": one_line(cell(rows, 62, 10)),
-            "shot_blasting": one_line(cell(rows, 63, 10)),
+            "casting_cell_kw_hr": parse_float(casting_cell),
+            "melting_furnace_capacity": one_line(melting_capacity),
+            "melting_furnace_kw_hr": parse_float(melting_power),
+            "heat_treatment": one_line(heat_treatment),
+            "shot_blasting": one_line(shot_blasting),
+            "_sources": {
+                "casting_cell_kw_hr": casting_cell_source,
+                "melting_furnace_capacity": melting_capacity_source,
+                "melting_furnace_kw_hr": melting_power_source,
+                "heat_treatment": heat_treatment_source,
+                "shot_blasting": shot_blasting_source,
+            },
         }
 
     def _page_2(self, extraction: DocumentExtraction, raw_text: str, physical_page: int | None) -> MeridianStructuredPage:
@@ -813,6 +1045,10 @@ class MeridianStructuredExtractionService:
         resource_rows = matrix(table_resource)
         resource_cells = matrix_cells(table_resource)
         resource_tid = table_resource.table_id if table_resource else "p3_t4"
+        if not row_value(resource_rows, "Power rating for cell (kw/hr)") and row_value(cell_summary_rows, "Power rating for cell (kw/hr)"):
+            resource_rows = cell_summary_rows
+            resource_cells = summary_cells
+            resource_tid = summary_tid
         operating_bottom = matrix(table_bottom)
         page_warnings: list[ExtractionWarning] = []
 
@@ -845,21 +1081,31 @@ class MeridianStructuredExtractionService:
             physical_page_number=physical_page,
             page_type="machining_estimation",
             title="SCL-PED RFQ Estimation for Machining",
-            header={
-                "rfq_no": cell(rows, 1, 1),
-                "date": parse_date(cell(rows, 1, 7)),
-                "customer": cell(rows, 2, 1),
-                "annual_volume_nos": parse_int(cell(rows, 2, 7)),
-                "annual_volume_including_rejection_nos": parse_int(cell(rows, 3, 7)),
-                "final_part_no": cell(rows, 3, 1),
-                "final_part_rev_no": cell(rows, 4, 1),
-                "description": cell(rows, 5, 1),
-                "alloy": cell(rows, 6, 1),
-                "machined_part_weight_kg": parse_float(cell(rows, 4, 7)),
-                "lbh_mm": parse_lbh(cell(rows, 5, 7)),
-                "takt_time_min": parse_float(cell(rows, 6, 7)),
-                "casting_category": cell(rows, 7, 1),
-            },
+            header=build_header(
+                rows,
+                main_cells,
+                main_tid,
+                {
+                    "rfq_no": (1, 1, ("RFQ No.",), null_if_blank),
+                    "date": (1, 7, ("Date",), parse_date),
+                    "customer": (2, 1, ("Customer",), null_if_blank),
+                    "annual_volume_nos": (2, 7, ("Annual volume (Nos)",), parse_int),
+                    "annual_volume_including_rejection_nos": (
+                        3,
+                        7,
+                        ("Annual volume incl. rejection", "Annual volume including rejection"),
+                        parse_int,
+                    ),
+                    "final_part_no": (3, 1, ("Final Part No.",), null_if_blank),
+                    "final_part_rev_no": (4, 1, ("Final Part Rev No.",), null_if_blank),
+                    "description": (5, 1, ("Description",), null_if_blank),
+                    "alloy": (6, 1, ("Alloy",), null_if_blank),
+                    "machined_part_weight_kg": (4, 7, ("Machined part wt (kg)",), parse_float),
+                    "lbh_mm": (5, 7, ("LBH (mm)",), parse_lbh),
+                    "takt_time_min": (6, 7, ("Takt Time (min)", "Takt time (min)"), parse_float),
+                    "casting_category": (7, 1, ("Casting Category",), null_if_blank),
+                },
+            ),
             machining_operations=operations,
             capital_summary={
                 "cell_cycle_time_min": parse_float(cell(rows, capital_row_index, 3)),
@@ -925,13 +1171,23 @@ class MeridianStructuredExtractionService:
         cells = cells or []
         header_index = find_row_index(rows, lambda row: row and one_line(row[0]).lower().startswith("opn. no."))
         start = (header_index + 1) if header_index is not None else 9
+        header = rows[header_index] if header_index is not None else []
+        columns = {
+            "operation_no": column_for_label(header, ("Opn. No.",), 0),
+            "description": column_for_label(header, ("Description",), 1),
+            "cycle_time_min": column_for_label(header, ("Cycle Time (min)",), 3),
+            "machines_per_cell": column_for_label(header, ("No of m/cs / cell", "No of m/cs"), 4),
+            "machine_cost_rs": column_for_label(header, ("Machine Cost (Rs.)",), 5),
+            "no_of_cells": column_for_label(header, ("No. of Cells",), 6),
+            "amount_rs": column_for_label(header, ("Amount (Rs. )", "Amount (Rs.)"), 7),
+        }
         operations: list[dict[str, Any]] = []
         for index in range(start, len(rows)):
             row = rows[index]
             if row_has_text(row, "Cell Cycle Time:") or row_has_text(row, "This estimation is valid") or row_has_text(row, "Operating cost"):
                 break
-            op_raw = one_line(row[0] if row else "")
-            description = one_line(row[1] if len(row) > 1 else "")
+            op_raw = one_line(cell(rows, index, columns["operation_no"]))
+            description = one_line(cell(rows, index, columns["description"]))
             if not op_raw and not description and not row_text(row):
                 continue
             if has_any_formula_error(row):
@@ -970,18 +1226,18 @@ class MeridianStructuredExtractionService:
                 {
                     "operation_no": operation_no,
                     "description": description,
-                    "cycle_time_min": parse_float(row[3] if len(row) > 3 else ""),
-                    "machines_per_cell": parse_int(row[4] if len(row) > 4 else ""),
-                    "machine_cost_rs": parse_int(row[5] if len(row) > 5 else ""),
-                    "no_of_cells": parse_int(row[6] if len(row) > 6 else ""),
-                    "amount_rs": parse_int(row[7] if len(row) > 7 else ""),
+                    "cycle_time_min": parse_float(cell(rows, index, columns["cycle_time_min"])),
+                    "machines_per_cell": parse_int(cell(rows, index, columns["machines_per_cell"])),
+                    "machine_cost_rs": parse_int(cell(rows, index, columns["machine_cost_rs"])),
+                    "no_of_cells": parse_int(cell(rows, index, columns["no_of_cells"])),
+                    "amount_rs": parse_int(cell(rows, index, columns["amount_rs"])),
                     "_sources": {
-                        "description": src(table_id, cell_at(cells, index, 1)),
-                        "cycle_time_min": src(table_id, cell_at(cells, index, 3)),
-                        "machines_per_cell": src(table_id, cell_at(cells, index, 4)),
-                        "machine_cost_rs": src(table_id, cell_at(cells, index, 5)),
-                        "no_of_cells": src(table_id, cell_at(cells, index, 6)),
-                        "amount_rs": src(table_id, cell_at(cells, index, 7)),
+                        "description": src(table_id, cell_at(cells, index, columns["description"])),
+                        "cycle_time_min": src(table_id, cell_at(cells, index, columns["cycle_time_min"])),
+                        "machines_per_cell": src(table_id, cell_at(cells, index, columns["machines_per_cell"])),
+                        "machine_cost_rs": src(table_id, cell_at(cells, index, columns["machine_cost_rs"])),
+                        "no_of_cells": src(table_id, cell_at(cells, index, columns["no_of_cells"])),
+                        "amount_rs": src(table_id, cell_at(cells, index, columns["amount_rs"])),
                     },
                 }
             )
@@ -992,26 +1248,39 @@ class MeridianStructuredExtractionService:
         return parse_numbered_notes(assumptions_row[0] if assumptions_row else "")
 
     def _page_4(self, extraction: DocumentExtraction, raw_text: str, physical_page: int | None) -> MeridianStructuredPage:
-        rows = matrix(self._physical_table(extraction, physical_page, 1))
+        table = self._physical_table(extraction, physical_page, 1)
+        rows = matrix(table)
+        cells = matrix_cells(table)
+        tid = table.table_id if table else "p4_t1"
         return MeridianStructuredPage(
             page_number=4,
             physical_page_number=physical_page,
             page_type="machining_process_planning",
             title="SCL-PED RFQ Process Planning Sheet",
-            header={
-                "rfq_no": cell(rows, 1, 1),
-                "date": parse_date(cell(rows, 1, 3)),
-                "customer": cell(rows, 2, 1),
-                "annual_volume_nos": parse_int(cell(rows, 2, 3)),
-                "annual_volume_including_rejection_nos": parse_int(cell(rows, 3, 3)),
-                "final_part_no": cell(rows, 3, 1),
-                "final_part_rev_no": cell(rows, 4, 1),
-                "description": cell(rows, 5, 1),
-                "alloy": cell(rows, 6, 1),
-                "machined_part_weight_kg": parse_float(cell(rows, 4, 3)),
-                "lbh_mm": parse_lbh(cell(rows, 5, 3)),
-                "takt_time_min": parse_float(cell(rows, 6, 3)),
-            },
+            header=build_header(
+                rows,
+                cells,
+                tid,
+                {
+                    "rfq_no": (1, 1, ("RFQ No.",), null_if_blank),
+                    "date": (1, 3, ("Date",), parse_date),
+                    "customer": (2, 1, ("Customer",), null_if_blank),
+                    "annual_volume_nos": (2, 3, ("Annual volume (Nos)",), parse_int),
+                    "annual_volume_including_rejection_nos": (
+                        3,
+                        3,
+                        ("Annual volume incl. rejection", "Annual volume including rejection"),
+                        parse_int,
+                    ),
+                    "final_part_no": (3, 1, ("Final Part No.",), null_if_blank),
+                    "final_part_rev_no": (4, 1, ("Final Part Rev No.",), null_if_blank),
+                    "description": (5, 1, ("Description",), null_if_blank),
+                    "alloy": (6, 1, ("Alloy",), null_if_blank),
+                    "machined_part_weight_kg": (4, 3, ("Machined part wt (kg)",), parse_float),
+                    "lbh_mm": (5, 3, ("LBH (mm)",), parse_lbh),
+                    "takt_time_min": (6, 3, ("Takt Time (min)", "Takt time (min)"), parse_float),
+                },
+            ),
             input_components=[{"label": "Input component", "image_present": True, "description": None}],
             process_sequences=[
                 {
@@ -1046,10 +1315,37 @@ class MeridianStructuredExtractionService:
         }
 
     def _page_5(self, extraction: DocumentExtraction, raw_text: str, physical_page: int | None) -> MeridianStructuredPage:
-        rows = matrix(self._physical_table(extraction, physical_page, 1))
+        table = self._physical_table(extraction, physical_page, 1)
+        rows = matrix(table)
+        cells = matrix_cells(table)
+        tid = table.table_id if table else "p5_t1"
         page_warnings: list[ExtractionWarning] = []
-        lbh_raw = cell(rows, 5, 3)
-        lbh = parse_lbh(lbh_raw)
+        header = build_header(
+            rows,
+            cells,
+            tid,
+            {
+                "rfq_no": (1, 1, ("RFQ No.",), null_if_blank),
+                "date": (1, 3, ("Date",), parse_date),
+                "customer": (2, 1, ("Customer",), null_if_blank),
+                "annual_volume_nos": (2, 3, ("Annual volume (Nos)",), parse_int),
+                "annual_volume_including_rejection_nos": (
+                    3,
+                    3,
+                    ("Annual volume incl. rejection", "Annual volume including rejection"),
+                    parse_int,
+                ),
+                "final_part_no": (3, 1, ("Final Part No.",), null_if_blank),
+                "final_part_rev_no": (4, 1, ("Final Part Rev No.",), null_if_blank),
+                "description": (5, 1, ("Description",), null_if_blank),
+                "alloy": (6, 1, ("Alloy",), null_if_blank),
+                "machined_part_weight_kg": (4, 3, ("Machined part wt (kg)",), parse_float),
+                "lbh_mm": (5, 3, ("LBH (mm)",), parse_lbh),
+                "takt_time_min": (6, 3, ("Takt Time (min)", "Takt time (min)"), parse_float),
+            },
+        )
+        lbh = header["lbh_mm"]
+        lbh_raw = lbh.get("raw") if isinstance(lbh, dict) else ""
         if one_line(lbh_raw) and any(lbh[dimension] is None for dimension in ("length", "breadth", "height")):
             page_warnings.append(
                 warning(
@@ -1076,20 +1372,7 @@ class MeridianStructuredExtractionService:
             physical_page_number=physical_page,
             page_type="assembly_estimation",
             title="SCL-PED RFQ ESTIMATION FOR ASSEMBLY",
-            header={
-                "rfq_no": cell(rows, 1, 1),
-                "date": parse_date(cell(rows, 1, 3)),
-                "customer": cell(rows, 2, 1),
-                "annual_volume_nos": parse_int(cell(rows, 2, 3)),
-                "annual_volume_including_rejection_nos": parse_int(cell(rows, 3, 3)),
-                "final_part_no": cell(rows, 3, 1),
-                "final_part_rev_no": cell(rows, 4, 1),
-                "description": cell(rows, 5, 1),
-                "alloy": cell(rows, 6, 1),
-                "machined_part_weight_kg": parse_float(cell(rows, 4, 3)),
-                "lbh_mm": lbh,
-                "takt_time_min": parse_float(cell(rows, 6, 3)),
-            },
+            header=header,
             cycle_time_details={
                 "assembly": {
                     "cycle_time_min": parse_float(cell(rows, 8, 2)),
@@ -1220,7 +1503,10 @@ class MeridianStructuredExtractionService:
         return match.group(1).strip() if match else None
 
     def _page_6(self, extraction: DocumentExtraction, raw_text: str, physical_page: int | None) -> MeridianStructuredPage:
-        rows = matrix(self._physical_table(extraction, physical_page, 1))
+        table = self._physical_table(extraction, physical_page, 1)
+        rows = matrix(table)
+        cells = matrix_cells(table)
+        tid = table.table_id if table else "p6_t1"
         casting_rows = matrix(self._physical_table(extraction, physical_page, 2))
         machining_rows = matrix(self._physical_table(extraction, physical_page, 3))
         has_email_image = self._page_has_image(extraction, physical_page)
@@ -1270,21 +1556,36 @@ class MeridianStructuredExtractionService:
             physical_page_number=physical_page,
             page_type="rfq_remarks",
             title="SCL-PED RFQ REMARKS",
-            header={
-                "rfq_no": cell(rows, 1, 1),
-                "date": parse_date(cell(rows, 1, 3)),
-                "customer": cell(rows, 2, 1),
-                "annual_volume_nos": parse_int(cell(rows, 2, 3)),
-                "annual_volume_including_rejection_nos": parse_int(cell(rows, 3, 3)),
-                "final_part_no": cell(rows, 3, 1),
-                "final_part_rev_no": cell(rows, 4, 1),
-                "description": cell(rows, 5, 1),
-                "alloy": cell(rows, 6, 1),
-                "alternate_alloy_proposed_by_scl": cell(rows, 7, 1),
-                "machined_part_weight_kg": parse_float(cell(rows, 4, 3)),
-                "casting_weight_kg": parse_float(cell(rows, 5, 3)),
-                "lbh_mm": parse_lbh(cell(rows, 6, 3)),
-            },
+            header=build_header(
+                rows,
+                cells,
+                tid,
+                {
+                    "rfq_no": (1, 1, ("RFQ No.",), null_if_blank),
+                    "date": (1, 3, ("Date",), parse_date),
+                    "customer": (2, 1, ("Customer",), null_if_blank),
+                    "annual_volume_nos": (2, 3, ("Annual volume (Nos)",), parse_int),
+                    "annual_volume_including_rejection_nos": (
+                        3,
+                        3,
+                        ("Annual volume including rejection", "Annual volume incl. rejection"),
+                        parse_int,
+                    ),
+                    "final_part_no": (3, 1, ("Final Part No.",), null_if_blank),
+                    "final_part_rev_no": (4, 1, ("Final Part Rev No.",), null_if_blank),
+                    "description": (5, 1, ("Description",), null_if_blank),
+                    "alloy": (6, 1, ("Alloy",), null_if_blank),
+                    "alternate_alloy_proposed_by_scl": (
+                        7,
+                        1,
+                        ("Alternate alloy proposed by SCL",),
+                        null_if_blank,
+                    ),
+                    "machined_part_weight_kg": (4, 3, ("Machined part wt (kg)",), parse_float),
+                    "casting_weight_kg": (5, 3, ("Casting Weight (Kg)",), parse_float),
+                    "lbh_mm": (6, 3, ("LBH (mm)",), parse_lbh),
+                },
+            ),
             remarks_sections=remarks_sections,
             email_evidence=email_evidence,
             raw_tables=self._page_tables(extraction, physical_page),
@@ -1398,7 +1699,10 @@ class MeridianStructuredExtractionService:
         return key or "other"
 
     def _page_7(self, extraction: DocumentExtraction, raw_text: str, physical_page: int | None) -> MeridianStructuredPage:
-        rows = matrix(self._physical_table(extraction, physical_page, 1))
+        table = self._physical_table(extraction, physical_page, 1)
+        rows = matrix(table)
+        cells = matrix_cells(table)
+        tid = table.table_id if table else "p7_t1"
         page_warnings: list[ExtractionWarning] = []
         section_title = one_line(cell(rows, 7, 0))
         if "\n" in clean_text(cell(rows, 1, 2)) or "annual volume" in one_line(cell(rows, 1, 2)).lower():
@@ -1436,19 +1740,29 @@ class MeridianStructuredExtractionService:
             physical_page_number=physical_page,
             page_type="packing_estimation",
             title="SCL-PED RFQ ESTIMATION FOR PACKING 334",
-            header={
-                "rfq_no": cell(rows, 1, 1),
-                "date": parse_date(cell(rows, 1, 4)),
-                "customer": cell(rows, 2, 1),
-                "annual_volume_nos": parse_int(cell(rows, 2, 4)),
-                "annual_volume_including_rejection_nos": parse_int(cell(rows, 3, 4)),
-                "final_part_no": cell(rows, 3, 1),
-                "final_part_rev_no": cell(rows, 4, 1),
-                "description": cell(rows, 5, 1),
-                "alloy": cell(rows, 6, 1),
-                "machined_part_weight_kg": parse_float(cell(rows, 4, 4)),
-                "lbh_mm": parse_lbh(cell(rows, 5, 4)),
-            },
+            header=build_header(
+                rows,
+                cells,
+                tid,
+                {
+                    "rfq_no": (1, 1, ("RFQ No.",), null_if_blank),
+                    "date": (1, 4, ("Date",), parse_date),
+                    "customer": (2, 1, ("Customer",), null_if_blank),
+                    "annual_volume_nos": (2, 4, ("Annual volume (Nos)",), parse_int),
+                    "annual_volume_including_rejection_nos": (
+                        3,
+                        4,
+                        ("Annual volume incl. rejection", "Annual volume including rejection"),
+                        parse_int,
+                    ),
+                    "final_part_no": (3, 1, ("Final Part No.",), null_if_blank),
+                    "final_part_rev_no": (4, 1, ("Final Part Rev No.",), null_if_blank),
+                    "description": (5, 1, ("Description",), null_if_blank),
+                    "alloy": (6, 1, ("Alloy",), null_if_blank),
+                    "machined_part_weight_kg": (4, 4, ("Machined part wt (kg)",), parse_float),
+                    "lbh_mm": (5, 4, ("LBH (mm)",), parse_lbh),
+                },
+            ),
             packing_box_quantity_working={
                 "section_title": section_title,
                 "component_image_present": True,
