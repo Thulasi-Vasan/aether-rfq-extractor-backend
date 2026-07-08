@@ -40,13 +40,17 @@
                     transform: translate(-50%, -50%) rotate(-90deg); transform-origin: center;
                     font-weight: bold; font-size: 4.5px; letter-spacing: -0.4px; }
 
-  /* SCL-PED banner */
-  .banner td { border: 0.75px solid #000; }
-  .logo { display: inline-block; width: 22px; height: 12px; border-radius: 7px; background: #0a3d91;
-          color: #fff; font-weight: bold; font-size: 7px; text-align: center; line-height: 12px;
-          font-style: italic; letter-spacing: 0.5px; }
-  .banner-title { text-align: center; font-weight: bold; font-size: 12px; }
-  .banner-title-lg { text-align: center; font-weight: bold; font-size: 14px; }
+  /* SCL-PED banner. Keep this out of a table so pdfplumber can infer it as
+     the title above the first real table on each report page. */
+  .banner {
+    display: block;
+    width: 100%;
+    min-height: 18px;
+    padding: 2px 3px;
+    text-align: center;
+  }
+  .banner-title { text-align: center; font-weight: bold; font-size: 12px; padding: 2px 3px; }
+  .banner-title-lg { text-align: center; font-weight: bold; font-size: 14px; padding: 2px 3px; }
 
   .part-img { width: 100%; height: 100%; object-fit: contain; }
   .img-box { width: 100%; height: 90px; display: flex; align-items: center; justify-content: center;
@@ -60,12 +64,9 @@
 
 {# ===== reusable SCL-PED banner ===== #}
 {% macro banner(title, large=false) %}
-<table class="banner"><tr>
-  <td style="width:26%; border:0.75px solid #000;">
-    <span class="logo">TVS</span>&nbsp;&nbsp;<span class="b">SCL-PED</span>
-  </td>
-  <td class="{{ 'banner-title-lg' if large else 'banner-title' }}" style="border:0.75px solid #000;">{{ title }}</td>
-</tr></table>
+<div class="banner">
+  <span class="{{ 'banner-title-lg' if large else 'banner-title' }}">TVS SCL-PED {{ title }}</span>
+</div>
 {% endmacro %}
 
 {# ===== standard 3-column header (label | value | label | value) ===== #}
