@@ -2,7 +2,6 @@ import base64
 import tempfile
 from pathlib import Path
 
-import cadquery as cq
 import fitz  # PyMuPDF
 
 
@@ -12,6 +11,12 @@ class CADRendererService:
         """
         Renders a STEP file to a Base64-encoded PNG using cadquery and PyMuPDF.
         """
+        # Imported lazily: cadquery pulls in a large native OCCT wheel that isn't
+        # installed on every machine. Keeping it out of the module's top-level
+        # imports means callers who never invoke this method (or who gate it
+        # behind Settings.enable_cad_part_image) aren't forced to have it.
+        import cadquery as cq
+
         # Load the STEP file
         shape = cq.importers.importStep(str(step_path))
         

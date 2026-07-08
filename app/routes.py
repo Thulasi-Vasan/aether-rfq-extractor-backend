@@ -11,6 +11,7 @@ from app.models.classifier import ClassificationResponse
 from app.models import DocumentSummary, TablesResponse, ReferenceDocumentResponse, FieldProvenance
 from app.api.cost_estimation import MeridianExtractionResponse
 from app.api.machining import MachiningOperationsResponse
+from app.models.rfq_estimation import PartImageResponse, RfqEstimationRequest
 
 # Import handlers
 from app.api.auth import login, get_me
@@ -23,6 +24,7 @@ from app.api.cost_estimation import (
     get_meridian_extraction, export_excel, get_provenance, enrich_provenance
 )
 from app.api.machining import extract_machining_operations
+from app.api.rfq_estimation import generate_estimation_pdf, render_part_image
 
 api_router = APIRouter()
 
@@ -58,5 +60,9 @@ protected_router.add_api_route("/v1/documents/{document_id}/provenance/enrich", 
 
 # Machining
 protected_router.add_api_route("/v1/machining/extract-operations", extract_machining_operations, methods=["POST"], response_model=MachiningOperationsResponse)
+
+# RFQ Estimation report (Stage 4 — 7-page SCL-PED estimation PDF)
+protected_router.add_api_route("/v1/rfq-estimation/pdf", generate_estimation_pdf, methods=["POST"], response_class=StreamingResponse)
+protected_router.add_api_route("/v1/rfq-estimation/part-image", render_part_image, methods=["POST"], response_model=PartImageResponse)
 
 api_router.include_router(protected_router)
