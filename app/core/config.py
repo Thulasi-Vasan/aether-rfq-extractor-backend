@@ -49,6 +49,13 @@ class Settings(BaseSettings):
         default=True,
         validation_alias=AliasChoices("AETHER_ENABLE_OCC", "ENABLE_OCC"),
     )
+    # Renders the RFQ Estimation report's "Part Image" from a STEP file via
+    # cadquery. Set to false on machines without cadquery installed — the
+    # report just falls back to its placeholder box instead of erroring.
+    enable_cad_part_image: bool = Field(
+        default=True,
+        validation_alias=AliasChoices("AETHER_ENABLE_CAD_PART_IMAGE", "ENABLE_CAD_PART_IMAGE"),
+    )
     use_static_summary: bool = Field(
         default=False,
         validation_alias=AliasChoices("AETHER_USE_STATIC_SUMMARY", "USE_STATIC_SUMMARY"),
