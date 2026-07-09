@@ -7,7 +7,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore", populate_by_name=True)
 
     data_dir: Path = Field(default=Path("data"), validation_alias="AETHER_DATA_DIR")
     reference_pdf_path: Path = Field(default=Path("samples/meridian-housing-gdc-reference.pdf"),validation_alias="AETHER_REFERENCE_PDF_PATH",)

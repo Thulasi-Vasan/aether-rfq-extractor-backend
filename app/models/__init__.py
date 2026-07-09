@@ -31,6 +31,7 @@ from .machining import (
 )
 from .classifier import ClassificationCategory, ClassificationResponse
 from .job import ClassificationJob
+from .rfq_estimation import GeneratedRfqCostEstimationResponse
 
 __all__ = [
     "AnchorCandidate",
@@ -44,6 +45,7 @@ __all__ = [
     "ExtractedTable",
     "ExtractionWarning",
     "FieldProvenance",
+    "GeneratedRfqCostEstimationResponse",
     "LLMOperation",
     "LLMResult",
     "MachiningOperationsResponse",

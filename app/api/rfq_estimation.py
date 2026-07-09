@@ -10,10 +10,17 @@ from fastapi.exceptions import HTTPException
 from fastapi.responses import StreamingResponse
 from starlette.concurrency import run_in_threadpool
 
+from app.api.dependencies import get_store
 from app.core.config import Settings, get_settings
-from app.models.rfq_estimation import PartImageResponse, RfqEstimationRequest
+from app.models.rfq_estimation import (
+    GeneratedRfqCostEstimationResponse,
+    PartImageResponse,
+    RfqEstimationRequest,
+)
 from app.services.doc_classifier.cad_renderer import CADRendererService
 from app.services.rfq_estimation import render_estimation_pdf
+from app.services.rfq_estimation.cost_estimation_bridge import GeneratedRfqCostEstimationService
+from app.services.storage import DocumentStore
 
 log = logging.getLogger(__name__)
 
@@ -39,6 +46,39 @@ def generate_estimation_pdf(payload: RfqEstimationRequest) -> StreamingResponse:
         media_type="application/pdf",
         headers={"Content-Disposition": f'inline; filename="{filename}"'},
     )
+
+
+def trigger_cost_estimation(
+    payload: RfqEstimationRequest,
+    settings: Settings = Depends(get_settings),
+    store: DocumentStore = Depends(get_store),
+) -> GeneratedRfqCostEstimationResponse:
+    """Auto-run the Cost Estimation flow on a generated RFQ Estimation PDF.
+
+    Called when the frontend approves/finalizes the RFQ Estimation Report (Stage 4):
+    renders the same PDF `POST /v1/rfq-estimation/pdf` would, then runs it through the
+    existing cost estimation pipeline (extraction, Meridian structuring, Excel/provenance
+    export) and returns the resulting `document_id` so the frontend can drive the existing
+    `/v1/documents/{document_id}/...` routes for the Cost Estimation and Final Report tabs.
+
+    Idempotent: approving the same RFQ payload again returns the same document_id and
+    status rather than creating a duplicate cost document. A pipeline failure still
+    returns the generated PDF's document_id (so it can be fetched via the existing
+    `/v1/documents/{document_id}/pdf` route) with `status="failed"` and `error` details —
+    it never raises, so the generated PDF is never invalidated by a downstream failure.
+    """
+    overrides = payload.as_overrides()
+    log.info("Generated RFQ cost estimation request: sections=%s", sorted(overrides.keys()))
+    service = GeneratedRfqCostEstimationService(settings, store)
+    result = service.run(overrides)
+    log.info(
+        "Generated RFQ cost estimation complete: document_id=%s status=%s cached=%s blocking_fields=%d",
+        result.get("document_id"),
+        result.get("status"),
+        result.get("cached"),
+        len(result.get("blocking_fields") or []),
+    )
+    return GeneratedRfqCostEstimationResponse(**result)
 
 
 async def render_part_image(
