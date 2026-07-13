@@ -649,7 +649,7 @@ class MeridianStructuredExtractionService:
                 "alternate_alloy_proposed_by_scl": (
                     7,
                     2,
-                    ("Alternate alloy proposed by SCL",),
+                    ("Alternate alloy proposed", "Alternate alloy proposed by SCL"),
                     null_if_blank,
                 ),
                 "machined_part_weight_kg": (4, 9, ("Machined part wt (kg)",), parse_float),
@@ -735,12 +735,12 @@ class MeridianStructuredExtractionService:
         testing_cost_details = self._page_1_testing(rows, cells, tid)
         power_rating_details = self._page_1_power(rows, cells, tid)
         approval = {
-            "prepared_by": "EA / KVG",
-            "approved_by": "JR",
+            "prepared_by": "",
+            "approved_by": "",
             "validity_note": "This estimation is valid for 90 days only",
-            "format_no": "F/PED-EST/03",
-            "revision_no": "01",
-            "revision_date": "2014-10-08",
+            "format_no": "",
+            "revision_no": "",
+            "revision_date": "",
             "classification": "Confidential",
         }
 
@@ -756,7 +756,7 @@ class MeridianStructuredExtractionService:
             page_number=1,
             physical_page_number=physical_page,
             page_type="gdc_estimation",
-            title="SCL-PED RFQ ESTIMATION FOR GRAVITY DIE CASTING (GDC)",
+            title="RFQ ESTIMATION FOR GRAVITY DIE CASTING (GDC)",
             header=header,
             output_machine_details=output_machine_details,
             casting_cell_details=casting_cell_details,
@@ -1080,7 +1080,7 @@ class MeridianStructuredExtractionService:
             page_number=3,
             physical_page_number=physical_page,
             page_type="machining_estimation",
-            title="SCL-PED RFQ Estimation for Machining",
+            title="RFQ ESTIMATION FOR MACHINING",
             header=build_header(
                 rows,
                 main_cells,
@@ -1148,12 +1148,12 @@ class MeridianStructuredExtractionService:
             },
             assumptions_notes=self._page_3_assumptions(rows),
             approval={
-                "prepared_by": "EA / KVG",
-                "approved_by": "JR",
+                "prepared_by": "",
+                "approved_by": "",
                 "validity_note": "This estimation is valid for 90 days only",
-                "format_no": "F/PED-EST/07",
-                "revision_no": "01",
-                "revision_date": "2014-10-29",
+                "format_no": "",
+                "revision_no": "",
+                "revision_date": "",
                 "classification": "Confidential",
             },
             raw_tables=self._page_tables(extraction, physical_page),
@@ -1256,7 +1256,7 @@ class MeridianStructuredExtractionService:
             page_number=4,
             physical_page_number=physical_page,
             page_type="machining_process_planning",
-            title="SCL-PED RFQ Process Planning Sheet",
+            title="RFQ PROCESS PLANNING SHEET",
             header=build_header(
                 rows,
                 cells,
@@ -1371,7 +1371,7 @@ class MeridianStructuredExtractionService:
             page_number=5,
             physical_page_number=physical_page,
             page_type="assembly_estimation",
-            title="SCL-PED RFQ ESTIMATION FOR ASSEMBLY",
+            title="RFQ ESTIMATION FOR ASSEMBLY",
             header=header,
             cycle_time_details={
                 "assembly": {
@@ -1401,12 +1401,12 @@ class MeridianStructuredExtractionService:
             after_assembly_machining=self._page_5_after_assembly(rows),
             part_references={"machined_part_no_rev": None, "casting_part_no_rev": None, "child_part_nos": []},
             approval={
-                "prepared_by": "EA / KVG",
-                "approved_by": "JR",
+                "prepared_by": "",
+                "approved_by": "",
                 "validity_note": "This estimation is valid for 90 days only",
-                "format_no": "F/PED-EST/05",
-                "revision_no": "01",
-                "revision_date": "2014-10-29",
+                "format_no": "",
+                "revision_no": "",
+                "revision_date": "",
                 "classification": "Confidential",
                 "extraction_status": "fallback_defaults",
             },
@@ -1555,7 +1555,7 @@ class MeridianStructuredExtractionService:
             page_number=6,
             physical_page_number=physical_page,
             page_type="rfq_remarks",
-            title="SCL-PED RFQ REMARKS",
+            title="RFQ REMARKS",
             header=build_header(
                 rows,
                 cells,
@@ -1578,7 +1578,7 @@ class MeridianStructuredExtractionService:
                     "alternate_alloy_proposed_by_scl": (
                         7,
                         1,
-                        ("Alternate alloy proposed by SCL",),
+                        ("Alternate alloy proposed", "Alternate alloy proposed by SCL"),
                         null_if_blank,
                     ),
                     "machined_part_weight_kg": (4, 3, ("Machined part wt (kg)",), parse_float),
@@ -1739,7 +1739,7 @@ class MeridianStructuredExtractionService:
             page_number=7,
             physical_page_number=physical_page,
             page_type="packing_estimation",
-            title="SCL-PED RFQ ESTIMATION FOR PACKING 334",
+            title="RFQ ESTIMATION FOR PACKING 334",
             header=build_header(
                 rows,
                 cells,

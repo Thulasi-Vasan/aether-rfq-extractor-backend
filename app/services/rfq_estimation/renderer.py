@@ -37,7 +37,7 @@ def _assign_group_spans(rows: list[dict[str, Any]]) -> None:
 
 
 def build_context(overrides: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Merge caller data onto the Meridian reference defaults and prep the context."""
+    """Merge caller data onto the neutral reference defaults and prep the context."""
     ctx = deep_merge(default_context(), overrides)
     _assign_group_spans(ctx["casting"]["capital_rows"])
     _assign_group_spans(ctx["casting"]["operating_rows"])

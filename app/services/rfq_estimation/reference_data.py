@@ -1,10 +1,8 @@
-"""Default context for the RFQ Estimation report.
+"""Neutral default context for the RFQ Estimation demo report.
 
-Every value here is transcribed from the Meridian Housing Compressor reference
-sheet (``samples/2425-328-Meridian-Housing comp-GDC es pdf2323.pdf``). The
-renderer deep-merges caller-supplied stage data onto a fresh copy of this
-context, so an empty request still renders the faithful reference PDF and a
-partial request only overrides the fields it carries.
+The renderer deep-merges caller-supplied stage data onto a fresh copy of this
+context, so omitted fields still produce a complete report without exposing
+customer or company-specific reference data.
 """
 
 from __future__ import annotations
@@ -15,14 +13,14 @@ from typing import Any
 
 def _header() -> dict[str, Any]:
     return {
-        "rfq_no": "2425-328",
-        "customer": "CTT",
-        "final_part_no": "6511292",
-        "final_part_rev": "No 2d drawing only 3d",
-        "description": "Meredian Housing Compressor",
+        "rfq_no": "RFQ-783214",
+        "customer": "Creston Mobility",
+        "final_part_no": "742681",
+        "final_part_rev": "3",
+        "description": "Compressor Housing Cover",
         "alloy": "E4-01-240 (C355-T71)",
         "alternate_alloy": "-",
-        "date": "7-Feb-25",
+        "date": "2026-07-10",
         "annual_volume": "33,000",
         "annual_volume_incl_rejection": "37,950",
         "machined_part_wt": "2.960",
@@ -38,7 +36,7 @@ def _header() -> dict[str, Any]:
 def _casting() -> dict[str, Any]:
     return {
         "title": "RFQ ESTIMATION FOR GRAVITY DIE CASTING (GDC)",
-        "form_ref": "F/PED-EST/03 Rev. No. 01 Rev. Dt. 08.10.2014",
+        "form_ref": "",
         "addl_info": "",
         # Left "Output/ m/c details" table.
         "output_rows": [
@@ -150,7 +148,7 @@ def _casting() -> dict[str, Any]:
             "melting_furnace_power": "24.6",
             "heat_treatment": "Refer Note",
             "shot_blasting": "Refer Note",
-            "discussed_with": "Mohan  / Sathish kumar.",
+            "discussed_with": "",
             "similar_part": "",
         },
         "testing_rows": [
@@ -176,15 +174,15 @@ def _casting() -> dict[str, Any]:
             "as it is considered in pricing based on shot rate and HT rate/ kg (10) The cost of Surface "
             "treatment (if any) to be obtained from Purchase only, NOT included in this estn"
         ),
-        "prepared_by": "EA / KVG",
-        "approved_by": "JR",
+        "prepared_by": "",
+        "approved_by": "",
     }
 
 
 def _machining() -> dict[str, Any]:
     return {
         "title": "RFQ Estimation for Machining",
-        "form_ref": "F/PED-EST/06 Rev.No. 01 Rev. Dt. 29.10.2014",
+        "form_ref": "",
         "casting_category": "Medium-Hor",
         "operations": [
             {"opn": "20", "desc": "TURNING CENTER- Diffuser  & Inlet M/cng (LT-20)", "cycle": "7.0", "mc_per_cell": "1", "mc_cost": "40,00,000", "cells": "1", "amount": "40,00,000"},
@@ -239,8 +237,8 @@ def _machining() -> dict[str, Any]:
             "from Purchase only, NOT included in this estimation (6) Setup changeover time (if any) "
             "considered included in cycle time"
         ),
-        "prepared_by": "EA / KVG",
-        "approved_by": "JR",
+        "prepared_by": "",
+        "approved_by": "",
     }
 
 
@@ -267,7 +265,7 @@ def _process_planning() -> dict[str, Any]:
 def _assembly() -> dict[str, Any]:
     return {
         "title": "RFQ ESTIMATION FOR ASSEMBLY",
-        "form_ref": "F/PED-EST/05 Rev. No. 01 Rev. Dt. 29.10.2014",
+        "form_ref": "",
         "cycle_time": [
             {"name": "Cycle Time (min)", "assembly": "0.0", "afm": "0.0"},
             {"name": "Output Per Hour (Nos)", "assembly": "0", "afm": "0"},
@@ -319,8 +317,8 @@ def _assembly() -> dict[str, Any]:
         "machined_part_rev": "",
         "casting_part_rev": "",
         "child_part_nos": "",
-        "prepared_by": "EA / KVG",
-        "approved_by": "JR",
+        "prepared_by": "",
+        "approved_by": "",
     }
 
 

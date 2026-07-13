@@ -14,12 +14,12 @@ from app.services.storage import DocumentStore
 # produces a clean extraction with page 2 (die design feasibility) legitimately absent.
 GENERATED_RFQ_OVERRIDES = {
     "header": {
-        "rfq_no": "RFQ-654321",
-        "date": "2025-02-07",
-        "customer": "Cummins",
-        "final_part_no": "651192",
-        "final_part_rev": "4",
-        "description": "Housing compressor cover",
+        "rfq_no": "RFQ-783214",
+        "date": "2026-07-10",
+        "customer": "Creston Mobility",
+        "final_part_no": "742681",
+        "final_part_rev": "3",
+        "description": "Compressor Housing Cover",
         "alloy": "E4-01-240 (C355-T71)",
         "annual_volume": "33000",
         "annual_volume_incl_rejection": "37,950",

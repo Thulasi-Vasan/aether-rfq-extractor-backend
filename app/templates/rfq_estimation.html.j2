@@ -40,7 +40,7 @@
                     transform: translate(-50%, -50%) rotate(-90deg); transform-origin: center;
                     font-weight: bold; font-size: 4.5px; letter-spacing: -0.4px; }
 
-  /* SCL-PED banner. Keep this out of a table so pdfplumber can infer it as
+  /* Report banner. Keep this out of a table so pdfplumber can infer it as
      the title above the first real table on each report page. */
   .banner {
     display: block;
@@ -62,10 +62,10 @@
 </head>
 <body>
 
-{# ===== reusable SCL-PED banner ===== #}
+{# ===== reusable neutral report banner ===== #}
 {% macro banner(title, large=false) %}
 <div class="banner">
-  <span class="{{ 'banner-title-lg' if large else 'banner-title' }}">TVS SCL-PED {{ title }}</span>
+  <span class="{{ 'banner-title-lg' if large else 'banner-title' }}">{{ title }}</span>
 </div>
 {% endmacro %}
 
@@ -94,7 +94,7 @@
     <tr><td class="lbl">Final Part Rev No.</td><td class="val">{{ header.final_part_rev }}</td><td class="lbl">Machined part wt (kg)</td><td class="val">{{ header.machined_part_wt }}</td></tr>
     <tr><td class="lbl">Description</td><td class="val">{{ header.description }}</td><td class="lbl">Casting Weight (Kg)</td><td class="val">{{ header.casting_weight }}</td></tr>
     <tr><td class="lbl">Alloy</td><td class="val">{{ header.alloy }}</td><td class="lbl">LBH (mm)</td><td class="val">{{ header.lbh }}</td></tr>
-    <tr><td class="lbl">Alternate alloy proposed by SCL</td><td class="val" style="background:#fce4d6">{{ header.alternate_alloy }}</td><td class="lbl">Takt time (min)</td><td class="val">{{ header.takt_time }}</td></tr>
+    <tr><td class="lbl">Alternate alloy proposed</td><td class="val" style="background:#fce4d6">{{ header.alternate_alloy }}</td><td class="lbl">Takt time (min)</td><td class="val">{{ header.takt_time }}</td></tr>
   </table>
 
   <table style="margin-top:2px">
@@ -415,7 +415,7 @@
     <tr><td class="lbl">Final Part Rev No.</td><td class="val">{{ header.final_part_rev }}</td><td class="lbl">Machined part wt (kg)</td><td class="val">{{ header.machined_part_wt }}</td></tr>
     <tr><td class="lbl">Description</td><td class="val">{{ header.description }}</td><td class="lbl">Casting Weight (Kg)</td><td class="val">{{ header.casting_weight }}</td></tr>
     <tr><td class="lbl">Alloy</td><td class="val">{{ header.alloy }}</td><td class="lbl">LBH (mm)</td><td class="val">{{ header.lbh }}</td></tr>
-    <tr><td class="lbl">Alternate alloy proposed by SCL</td><td class="val">{{ header.alternate_alloy }}</td><td class="lbl"></td><td></td></tr>
+    <tr><td class="lbl">Alternate alloy proposed</td><td class="val">{{ header.alternate_alloy }}</td><td class="lbl"></td><td></td></tr>
   </table>
 
   {% macro remark_section(title, items) %}

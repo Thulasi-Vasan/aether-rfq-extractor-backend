@@ -65,7 +65,7 @@ protected_router.add_api_route("/v1/documents/{document_id}/provenance/enrich", 
 # Machining
 protected_router.add_api_route("/v1/machining/extract-operations", extract_machining_operations, methods=["POST"], response_model=MachiningOperationsResponse)
 
-# RFQ Estimation report (Stage 4 — 7-page SCL-PED estimation PDF)
+# RFQ Estimation report (Stage 4 — 7-page estimation PDF)
 protected_router.add_api_route("/v1/rfq-estimation/pdf", generate_estimation_pdf, methods=["POST"], response_class=StreamingResponse)
 protected_router.add_api_route("/v1/rfq-estimation/part-image", render_part_image, methods=["POST"], response_model=PartImageResponse)
 protected_router.add_api_route(

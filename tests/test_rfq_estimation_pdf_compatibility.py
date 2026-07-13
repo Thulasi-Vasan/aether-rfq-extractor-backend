@@ -36,17 +36,17 @@ def _provenance_source_text(extraction, record) -> str:
 
 
 def test_generated_rfq_pdf_maps_to_cost_estimation_values_and_sources(tmp_path: Path) -> None:
-    pdf_path = tmp_path / "RFQ-654321_estimation.pdf"
+    pdf_path = tmp_path / "RFQ-783214_estimation.pdf"
     pdf_path.write_bytes(
         render_estimation_pdf(
             {
                 "header": {
-                    "rfq_no": "RFQ-654321",
-                    "date": "2025-02-07",
-                    "customer": "Cummins",
-                    "final_part_no": "651192",
-                    "final_part_rev": "4",
-                    "description": "Housing compressor cover",
+                    "rfq_no": "RFQ-783214",
+                    "date": "2026-07-10",
+                    "customer": "Creston Mobility",
+                    "final_part_no": "742681",
+                    "final_part_rev": "3",
+                    "description": "Compressor Housing Cover",
                     "alloy": "E4-01-240 (C355-T71)",
                     "annual_volume": "33000",
                     "annual_volume_incl_rejection": "37,950",
@@ -80,10 +80,10 @@ def test_generated_rfq_pdf_maps_to_cost_estimation_values_and_sources(tmp_path: 
     sheet = wb["Input Sheet"]
 
     expected_cells = {
-        "C2": "RFQ-654321",
-        "C4": "Cummins",
-        "C5": "651192",
-        "C7": "Housing compressor cover",
+        "C2": "RFQ-783214",
+        "C4": "Creston Mobility",
+        "C5": "742681",
+        "C7": "Compressor Housing Cover",
         "C8": "E4-01-240 (C355-T71)",
         "G4": 33000,
         "G8": 2.96,
@@ -133,10 +133,10 @@ def test_generated_rfq_pdf_maps_to_cost_estimation_values_and_sources(tmp_path: 
 
     records = {record.excel_cell: record for record in provenance}
     expected_source_text = {
-        "C2": "RFQ-654321",
-        "C4": "Cummins",
-        "C5": "651192",
-        "C7": "Housing compressor cover",
+        "C2": "RFQ-783214",
+        "C4": "Creston Mobility",
+        "C5": "742681",
+        "C7": "Compressor Housing Cover",
         "C8": "E4-01-240 (C355-T71)",
         "G4": "33000",
         "G8": "2.960",
