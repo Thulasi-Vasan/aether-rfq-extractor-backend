@@ -1,0 +1,479 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<style>
+  @page {
+    size: Letter;
+    margin: 7mm 8mm;
+    @bottom-left { content: "Classification: Confidential"; font-size: 7px; color: #c00; }
+    @bottom-center { content: "Page " counter(page) " of " counter(pages); font-size: 7px; color: #333; }
+  }
+  * { box-sizing: border-box; }
+  body { font-family: "Arial", "Liberation Sans", sans-serif; color: #000; font-size: 8px; margin: 0; }
+  .page { page-break-after: always; }
+  .page:last-child { page-break-after: auto; }
+
+  table { border-collapse: collapse; width: 100%; table-layout: fixed; }
+  td, th { border: 0.75px solid #000; padding: 0.9px 3px; vertical-align: middle; word-wrap: break-word; overflow: hidden; }
+  .page1 td, .page1 th { padding: 0.4px 3px; line-height: 1.1; }
+  .noborder td, .noborder th { border: none; }
+
+  .val { background: #dbe9f4; font-weight: bold; text-align: center; }
+  .lbl { text-align: left; }
+  .ctr { text-align: center; }
+  .right { text-align: right; }
+  .b { font-weight: bold; }
+  .green { background: #a9d08e; font-weight: bold; }
+  .orange { background: #ffc000; }
+  .grey { background: #d9d9d9; }
+  .yellow { background: #ffff99; }
+  .tan-band { background: #c9bfa4; font-weight: bold; }
+  .hl-band { background: #ffc000; font-weight: bold; }
+  .green-band { background: #a9d08e; font-weight: bold; }
+  .warn { color: #c00000; font-weight: bold; }
+  .small { font-size: 6.5px; }
+  .tiny { font-size: 6px; line-height: 1.15; }
+
+  .grouplbl { position: relative; width: 12px; background: #f2f2f2; padding: 0; overflow: visible; }
+  .grouplbl-inner { position: absolute; left: 50%; top: 50%; white-space: nowrap;
+                    transform: translate(-50%, -50%) rotate(-90deg); transform-origin: center;
+                    font-weight: bold; font-size: 4.5px; letter-spacing: -0.4px; }
+
+  /* SCL-PED banner. Keep this out of a table so pdfplumber can infer it as
+     the title above the first real table on each report page. */
+  .banner {
+    display: block;
+    width: 100%;
+    min-height: 18px;
+    padding: 2px 3px;
+    text-align: center;
+  }
+  .banner-title { text-align: center; font-weight: bold; font-size: 12px; padding: 2px 3px; }
+  .banner-title-lg { text-align: center; font-weight: bold; font-size: 14px; padding: 2px 3px; }
+
+  .part-img { width: 100%; height: 100%; object-fit: contain; }
+  .img-box { width: 100%; height: 90px; display: flex; align-items: center; justify-content: center;
+             color: #999; font-size: 8px; text-align: center; }
+
+  .sig td { border: 0.75px solid #000; height: 16px; }
+  .notes { font-size: 6px; line-height: 1.2; padding: 2px 3px; border: 0.75px solid #000; }
+</style>
+</head>
+<body>
+
+{# ===== reusable SCL-PED banner ===== #}
+{% macro banner(title, large=false) %}
+<div class="banner">
+  <span class="{{ 'banner-title-lg' if large else 'banner-title' }}">TVS SCL-PED {{ title }}</span>
+</div>
+{% endmacro %}
+
+{# ===== standard 3-column header (label | value | label | value) ===== #}
+{% macro header_block(h, extra_left='') %}
+<table>
+  <colgroup><col style="width:19%"><col style="width:31%"><col style="width:27%"><col style="width:23%"></colgroup>
+  <tr><td class="lbl">RFQ No.</td><td class="val">{{ h.rfq_no }}</td><td class="lbl">Date</td><td class="val">{{ h.date }}</td></tr>
+  <tr><td class="lbl">Customer</td><td class="val">{{ h.customer }}</td><td class="lbl">Annual volume (Nos)</td><td class="val">{{ h.annual_volume }}</td></tr>
+  <tr><td class="lbl">Final Part No.</td><td class="val">{{ h.final_part_no }}</td><td class="lbl">Annual volume incl. rejection (Nos)</td><td class="val">{{ h.annual_volume_incl_rejection }}</td></tr>
+  <tr><td class="lbl">Final Part Rev No.</td><td class="val">{{ h.final_part_rev }}</td><td class="lbl">Machined part wt (kg)</td><td class="val">{{ h.machined_part_wt }}</td></tr>
+  <tr><td class="lbl">Description</td><td class="val">{{ h.description }}</td><td class="lbl">LBH (mm)</td><td class="val">{{ h.lbh }}</td></tr>
+  <tr><td class="lbl">Alloy</td><td class="val">{{ h.alloy }}</td><td class="lbl">Takt Time (min)</td><td class="val">{{ h.takt_time }}</td></tr>
+</table>
+{% endmacro %}
+
+{# ============================= PAGE 1 — CASTING (GDC) ============================= #}
+<div class="page page1">
+  {{ banner(casting.title) }}
+  {# header + part image #}
+  <table>
+    <colgroup><col style="width:24%"><col style="width:26%"><col style="width:27%"><col style="width:23%"></colgroup>
+    <tr><td class="lbl">RFQ No.</td><td class="val">{{ header.rfq_no }}</td><td class="lbl">Date</td><td class="val">{{ header.date }}</td></tr>
+    <tr><td class="lbl">Customer</td><td class="val">{{ header.customer }}</td><td class="lbl">Annual volume (Nos)</td><td class="val">{{ header.annual_volume }}</td></tr>
+    <tr><td class="lbl">Final Part No.</td><td class="val">{{ header.final_part_no }}</td><td class="lbl">Annual volume including rejection  (Nos)</td><td class="val">{{ header.annual_volume_incl_rejection }}</td></tr>
+    <tr><td class="lbl">Final Part Rev No.</td><td class="val">{{ header.final_part_rev }}</td><td class="lbl">Machined part wt (kg)</td><td class="val">{{ header.machined_part_wt }}</td></tr>
+    <tr><td class="lbl">Description</td><td class="val">{{ header.description }}</td><td class="lbl">Casting Weight (Kg)</td><td class="val">{{ header.casting_weight }}</td></tr>
+    <tr><td class="lbl">Alloy</td><td class="val">{{ header.alloy }}</td><td class="lbl">LBH (mm)</td><td class="val">{{ header.lbh }}</td></tr>
+    <tr><td class="lbl">Alternate alloy proposed by SCL</td><td class="val" style="background:#fce4d6">{{ header.alternate_alloy }}</td><td class="lbl">Takt time (min)</td><td class="val">{{ header.takt_time }}</td></tr>
+  </table>
+
+  <table style="margin-top:2px">
+    <colgroup><col style="width:50%"><col style="width:50%"></colgroup>
+    <tr><td class="lbl b">Addl info of RFQ:-</td><td class="lbl b">Part Image:</td></tr>
+  </table>
+
+  {# output/mc details header + first 4 sand-core rows, part image on right #}
+  <table style="margin-top:2px">
+    <colgroup>
+      <col style="width:26%"><col style="width:8%"><col style="width:8%"><col style="width:8%">
+      <col style="width:35%"><col style="width:15%">
+    </colgroup>
+    <tr>
+      <td class="b" style="vertical-align:bottom">Output/ m/c details:</td>
+      <td class="ctr small b">No of cavities/ Loading</td>
+      <td class="ctr small b">Cycle Time (min)</td>
+      <td class="ctr small b">Output /hr</td>
+      <td rowspan="5" colspan="2" style="vertical-align:top; padding:0">
+        {% if header.part_image %}<img class="part-img" src="{{ header.part_image }}" style="height:78px" />
+        {% else %}<div class="img-box" style="height:78px">[ Part Image ]</div>{% endif %}
+      </td>
+    </tr>
+    {% for r in casting.output_rows[:4] %}
+    <tr>
+      <td class="lbl">{{ r.name }}</td>
+      <td class="ctr val">{{ r.cavities }}</td>
+      <td class="ctr val">{{ r.cycle }}</td>
+      <td class="ctr">{{ r.output }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+
+  {# remaining output rows (left) + casting parameter block (right) #}
+  <table>
+    <colgroup>
+      <col style="width:26%"><col style="width:8%"><col style="width:8%"><col style="width:8%">
+      <col style="width:35%"><col style="width:15%">
+    </colgroup>
+    {% set param_rows = [
+      ('Casting Category', casting.params.casting_category),
+      ('No of casting cells planned', casting.params.cells_planned),
+      ('Weight of Sand core/ part (kg) (if any)', casting.params.sand_core_wt),
+      ('Man power / shift/ cell', casting.params.man_power),
+      ('Floor space /cell (Sq.m) (includes Die casting, Post casting, WIP, Sand core, finished goods, HT, SH/blast, Melting)', casting.params.floor_space),
+      ('Type of shot blasting (Hanger type / AlO2/ Tumbling/ Vibro finishing)', casting.params.shot_blasting_type),
+      ('Surface coating involved (if any)', casting.params.surface_coating),
+    ] %}
+    {% set out_lower = casting.output_rows[4:] %}
+    {% for i in range(7) %}
+    {% set r = out_lower[i] if i < out_lower|length else None %}
+    <tr>
+      {% if r %}
+      <td class="lbl">{{ r.name }}</td>
+      <td class="ctr val">{{ r.cavities }}</td>
+      <td class="ctr val">{{ r.cycle }}</td>
+      <td class="ctr">{{ r.output }}</td>
+      {% else %}<td></td><td></td><td></td><td></td>{% endif %}
+      <td class="lbl small">{{ param_rows[i][0] }}</td>
+      <td class="ctr val">{{ param_rows[i][1] }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+
+  {# capital investments (left)  +  operating cost (right) — two side-by-side tables #}
+  <table style="margin-top:2px; border:none"><tr style="border:none">
+    <td style="width:50%; border:none; padding:0; vertical-align:top">
+      <table>
+        <colgroup><col style="width:5%"><col style="width:47%"><col style="width:14%"><col style="width:12%"><col style="width:11%"><col style="width:11%"></colgroup>
+        <tr>
+          <td class="b ctr" style="background:#f2f2f2">&nbsp;</td>
+          <td class="b">Capital Investments (Rs. Lac)</td>
+          <td class="b ctr small">Utilisation%</td>
+          <td class="b ctr small">No of M/cs/ No of Units</td>
+          <td class="b ctr small">Amount /cell</td>
+          <td class="b ctr small">Total Cost</td>
+        </tr>
+        {% for r in casting.capital_rows %}
+        <tr>
+          {% if r.group_span %}<td class="grouplbl" rowspan="{{ r.group_span }}"><div class="grouplbl-inner">{{ r.group }}</div></td>{% endif %}
+          <td class="lbl {{ 'small' if r.name|length > 34 }}">{{ r.name }}</td>
+          <td class="ctr val">{{ r.util }}</td>
+          <td class="ctr val">{{ r.units }}</td>
+          <td class="ctr {{ 'val' if r.amount_cell }}">{{ r.amount_cell }}</td>
+          <td class="ctr {{ 'orange' if r.hl else '' }}">{{ r.total }}</td>
+        </tr>
+        {% endfor %}
+        <tr><td colspan="2" class="green-band">Total Investment</td><td></td><td></td><td></td><td class="green ctr">{{ casting.total_investment }}</td></tr>
+      </table>
+      <table>
+        <colgroup><col style="width:5%"><col style="width:61%"><col style="width:12%"><col style="width:11%"><col style="width:11%"></colgroup>
+        <tr><td class="grouplbl" rowspan="3"><div class="grouplbl-inner">Die</div></td><td class="b">Die and corebox (if any) No of Dies & cost (Rs. Lac)</td><td class="ctr val">{{ casting.die.no_of_dies }}</td><td></td><td></td></tr>
+        <tr><td class="lbl">Die life (shots)</td><td></td><td></td><td class="ctr val">{{ casting.die.die_life }}</td></tr>
+        <tr><td class="lbl">Core box life (shots)</td><td></td><td></td><td class="ctr val">{{ casting.die.corebox_life }}</td></tr>
+      </table>
+      <table>
+        <colgroup><col style="width:78%"><col style="width:22%"></colgroup>
+        <tr><td class="b">Testing Cost Details:   (Rs.)</td><td></td></tr>
+        {% for t in casting.testing_rows %}
+        <tr><td class="lbl">{{ t.name }}</td><td class="ctr {{ 'val' if t.value }}">{{ t.value }}</td></tr>
+        {% endfor %}
+        <tr><td class="green-band">Total Testing Cost/ Part</td><td class="green ctr">{{ casting.total_testing }}</td></tr>
+      </table>
+    </td>
+    <td style="width:50%; border:none; padding:0 0 0 3px; vertical-align:top">
+      <table>
+        <colgroup><col style="width:6%"><col style="width:74%"><col style="width:20%"></colgroup>
+        <tr>
+          <td class="b ctr" style="background:#f2f2f2">&nbsp;</td>
+          <td class="b">Operating Cost (Rs. Lac)</td>
+          <td class="b ctr small">Amount (Rs.)</td>
+        </tr>
+        {% for r in casting.operating_rows %}
+        <tr>
+          {% if r.group_span %}<td class="grouplbl" rowspan="{{ r.group_span }}"><div class="grouplbl-inner">{{ r.group }}</div></td>{% endif %}
+          <td class="lbl {{ 'small' if r.name|length > 30 }}">{{ r.name }}</td>
+          <td class="ctr {{ 'orange' if r.hl else '' }}">{{ r.amount }}</td>
+        </tr>
+        {% endfor %}
+        <tr><td colspan="2" class="green-band">Total Investment</td><td class="green ctr">{{ casting.operating_total }}</td></tr>
+      </table>
+      <table>
+        <colgroup><col style="width:60%"><col style="width:22%"><col style="width:18%"></colgroup>
+        <tr><td colspan="3" class="b">Power Rating Details: (Kw/hr)</td></tr>
+        <tr><td class="lbl small">Casting Cell (Incl Core shoot, Decore, Holding furnace, Casting, Power pack, Cutting, Linishing, Robot, Extractor)</td><td class="ctr val" colspan="2">{{ casting.power.casting_cell }}</td></tr>
+        <tr><td class="lbl">Meltng. Furn. Capacity</td><td class="ctr val">{{ casting.power.melting_furnace_capacity }}</td><td class="ctr val">{{ casting.power.melting_furnace_power }}</td></tr>
+        <tr><td class="lbl">Heat treatment</td><td class="ctr" colspan="2">{{ casting.power.heat_treatment }}</td></tr>
+        <tr><td class="lbl">Shot blasting</td><td class="ctr" colspan="2">{{ casting.power.shot_blasting }}</td></tr>
+        <tr><td class="lbl" colspan="3">Discussed with: {{ casting.power.discussed_with }}</td></tr>
+        <tr><td class="lbl" colspan="3">Similar part/ Estn referred: {{ casting.power.similar_part }}</td></tr>
+      </table>
+    </td>
+  </tr></table>
+
+  <div class="notes" style="margin-top:2px">{{ casting.assumptions }}</div>
+  <table class="sig" style="margin-top:2px">
+    <colgroup><col style="width:50%"><col style="width:50%"></colgroup>
+    <tr><td class="lbl">{{ casting.prepared_by }}</td><td class="lbl">{{ casting.approved_by }}</td></tr>
+    <tr><td class="lbl">Prepared by</td><td class="lbl">Approved by</td></tr>
+    <tr><td class="lbl small">This estimation is valid for 90 days only</td><td class="lbl small right">{{ casting.form_ref }}</td></tr>
+  </table>
+</div>
+
+{# ============================= PAGE 2 — MACHINING ============================= #}
+<div class="page">
+  {{ banner(machining.title, large=true) }}
+  {{ header_block(header) }}
+  <table>
+    <colgroup><col style="width:19%"><col style="width:81%"></colgroup>
+    <tr><td class="lbl">Casting Category</td><td class="lbl b" style="font-size:11px; padding-left:10px">{{ machining.casting_category }}</td></tr>
+  </table>
+
+  <table style="margin-top:2px">
+    <colgroup><col style="width:8%"><col style="width:36%"><col style="width:10%"><col style="width:11%"><col style="width:13%"><col style="width:10%"><col style="width:12%"></colgroup>
+    <tr>
+      <td class="b ctr small">Opn. No.</td>
+      <td class="b ctr">Description</td>
+      <td class="b ctr small">Cycle Time (min)</td>
+      <td class="b ctr small">No of m/cs / cell</td>
+      <td class="b ctr small">Machine Cost (Rs.)</td>
+      <td class="b ctr small">No. of Cells</td>
+      <td class="b ctr small">Amount (Rs. )</td>
+    </tr>
+    {% for op in machining.operations %}
+    <tr>
+      <td class="ctr">{{ op.opn }}</td>
+      <td class="lbl val" style="color:#0a3d91">{{ op.desc }}</td>
+      <td class="ctr">{{ op.cycle }}</td>
+      <td class="ctr">{{ op.mc_per_cell }}</td>
+      <td class="ctr val" style="color:#0a3d91">{{ op.mc_cost }}</td>
+      <td class="ctr">{{ op.cells }}</td>
+      <td class="ctr">{{ op.amount }}</td>
+    </tr>
+    {% endfor %}
+    <tr>
+      <td colspan="2" style="border:none"></td>
+      <td colspan="2" class="green-band ctr">Cell Cycle Time:</td>
+      <td class="green ctr">{{ machining.cell_cycle_time }}</td>
+      <td class="green-band ctr" style="font-size:6.5px">Total Capital Expenditure</td>
+      <td class="green ctr">{{ machining.total_capital_expenditure }}</td>
+    </tr>
+  </table>
+  <table class="noborder"><tr><td class="small">This estimation is valid for 90 days only</td><td class="small right">{{ machining.form_ref }}</td></tr></table>
+
+  <div class="b" style="margin-top:10px">Operating cost for the given Volume: <span style="font-weight:normal; margin-left:120px">(Cost in Rs.)</span></div>
+  <table style="margin-top:2px; border:none"><tr style="border:none">
+    <td style="width:49%; border:none; padding:0; vertical-align:top">
+      <table>
+        <colgroup><col style="width:62%"><col style="width:38%"></colgroup>
+        {% for r in machining.operating_left %}
+        <tr><td class="lbl">{{ r.name }}</td><td class="ctr {{ 'grey' if r.grey else ('val' if r.value else '') }}">{{ r.value }}</td></tr>
+        {% endfor %}
+        <tr><td class="green-band">Total Oerating Cost</td><td class="green ctr">{{ machining.operating_total }}</td></tr>
+      </table>
+    </td>
+    <td style="width:2%; border:none"></td>
+    <td style="width:49%; border:none; padding:0; vertical-align:top">
+      <table>
+        <colgroup><col style="width:62%"><col style="width:38%"></colgroup>
+        {% for r in machining.operating_right %}
+        <tr><td class="lbl">{{ r.name }}</td><td class="ctr {{ 'grey' if r.grey else ('val' if r.value else '') }} b">{{ r.value }}</td></tr>
+        {% endfor %}
+      </table>
+    </td>
+  </tr></table>
+
+  <div class="notes" style="margin-top:10px">Assumptions/ Notes:<br/>{{ machining.notes }}</div>
+  <table class="sig" style="margin-top:10px">
+    <colgroup><col style="width:50%"><col style="width:50%"></colgroup>
+    <tr><td class="lbl">{{ machining.prepared_by }}</td><td class="lbl right">{{ machining.approved_by }}</td></tr>
+    <tr><td class="lbl">Prepared by</td><td class="lbl right">Approved by</td></tr>
+  </table>
+</div>
+
+{# ============================= PAGE 3 — PROCESS PLANNING ============================= #}
+<div class="page">
+  {{ banner(process_planning.title, large=true) }}
+  {{ header_block(header) }}
+  <table style="margin-top:2px; border:0.75px solid #000">
+    <tr>
+      <td style="width:42%; vertical-align:top; padding:6px">
+        <div class="b ctr" style="margin-bottom:6px">Input component</div>
+        <div style="margin:8px 0">Machining process sequence:</div>
+        <div class="b">Machining process sequence: F</div>
+        {% for m in process_planning.sequence %}
+        <div style="margin-top:10px">
+          {% if m.machine %}<div class="b" style="text-decoration:underline">{{ m.machine }}</div>{% endif %}
+          {% if m.setup %}<div class="b" style="margin-top:4px">{{ m.setup }}</div>{% endif %}
+          {% for s in m.steps %}<div style="margin-top:2px">{{ s }}</div>{% endfor %}
+        </div>
+        {% endfor %}
+      </td>
+      <td style="width:58%; vertical-align:top; padding:6px; text-align:center">
+        {% if header.part_image %}
+          <img class="part-img" src="{{ header.part_image }}" style="max-height:640px" />
+        {% else %}
+          <div class="img-box" style="height:640px">[ Component / machining sequence renders ]</div>
+        {% endif %}
+      </td>
+    </tr>
+  </table>
+</div>
+
+{# ============================= PAGE 4 — ASSEMBLY ============================= #}
+<div class="page">
+  {{ banner(assembly.title) }}
+  {{ header_block(header) }}
+
+  <table style="margin-top:2px">
+    <colgroup><col style="width:50%"><col style="width:25%"><col style="width:25%"></colgroup>
+    <tr><td class="b" style="font-size:10px; text-decoration:underline">Cycle Time Details:</td><td class="b ctr val">Assembly</td><td class="b ctr val">After Assembly Machining</td></tr>
+    {% for r in assembly.cycle_time %}
+    <tr><td class="lbl">{{ r.name }}</td><td class="ctr val b">{{ r.assembly }}</td><td class="ctr val b">{{ r.afm }}</td></tr>
+    {% endfor %}
+  </table>
+
+  <table style="margin-top:6px">
+    <colgroup><col style="width:50%"><col style="width:25%"><col style="width:25%"></colgroup>
+    <tr><td class="b" style="font-size:10px; text-decoration:underline">BEFORE AFM MACHINING ASSEMBLY</td><td class="b ctr">Capex</td><td class="b ctr">Operating</td></tr>
+    {% for r in assembly.before_afm_assembly %}
+    <tr><td class="lbl">{{ r.name }}</td><td class="ctr {{ 'val' if loop.index0 in [0,3,5] else 'grey' }}"></td><td class="grey"></td></tr>
+    {% endfor %}
+    <tr><td class="green-band">Total Assembly Investment</td><td class="green ctr">{{ assembly.total_assembly_investment.capex }}</td><td class="green ctr">{{ assembly.total_assembly_investment.operating }}</td></tr>
+    <tr><td class="green-band">Total Assembly Investment for all cells</td><td class="green ctr">{{ assembly.total_assembly_investment_all.capex }}</td><td class="green ctr">{{ assembly.total_assembly_investment_all.operating }}</td></tr>
+  </table>
+
+  <table style="margin-top:6px">
+    <colgroup><col style="width:75%"><col style="width:25%"></colgroup>
+    {% for r in assembly.assembly_params %}
+    <tr><td class="lbl" style="padding-left:10px">{{ r.name }}</td><td class="ctr val b">{{ r.value }}</td></tr>
+    {% endfor %}
+  </table>
+
+  <table style="margin-top:6px">
+    <colgroup><col style="width:75%"><col style="width:25%"></colgroup>
+    <tr><td class="b" style="font-size:9px; text-decoration:underline">Is after assembly machining involved? (Yes / No)</td><td class="ctr val b">{{ assembly.after_afm_involved }}</td></tr>
+  </table>
+
+  <table style="margin-top:2px">
+    <colgroup><col style="width:50%"><col style="width:17%"><col style="width:17%"><col style="width:16%"></colgroup>
+    <tr><td class="b" style="text-decoration:underline">BEFORE AFM MACHINING</td><td class="b ctr">Capex</td><td class="b ctr">Operating</td><td class="b ctr small">Cycle Time (min)</td></tr>
+    {% for r in assembly.before_afm_machining %}
+    <tr><td class="lbl">{{ r.name }}</td><td class="grey"></td><td class="grey"></td><td class="{{ 'val' if loop.index0 in [7,8,9,10] else 'grey' }}"></td></tr>
+    {% endfor %}
+    <tr><td class="green-band">Total after assembly machining Investment</td><td class="green ctr">{{ assembly.total_afm_investment.capex }}</td><td class="green ctr">{{ assembly.total_afm_investment.operating }}</td><td></td></tr>
+    <tr><td class="green-band">Total after assembly machining Investment for all cells</td><td class="green ctr">{{ assembly.total_afm_investment_all.capex }}</td><td class="green ctr">{{ assembly.total_afm_investment_all.operating }}</td><td></td></tr>
+    <tr><td class="green-band">TOTAL ASSY INVESTMENTS</td><td class="green ctr">{{ assembly.total_assy_investments.capex }}</td><td class="green ctr">{{ assembly.total_assy_investments.operating }}</td><td></td></tr>
+  </table>
+
+  <table style="margin-top:6px">
+    <colgroup><col style="width:75%"><col style="width:25%"></colgroup>
+    {% for r in assembly.afm_params %}
+    <tr><td class="lbl">{{ r.name }}</td><td class="ctr {{ 'val' if '-' not in r.value else '' }} b">{{ r.value }}</td></tr>
+    {% endfor %}
+  </table>
+
+  <table style="margin-top:6px">
+    <colgroup><col style="width:25%"><col style="width:25%"><col style="width:50%"></colgroup>
+    <tr><td class="lbl">Machined Part No/ Rev</td><td class="val">{{ assembly.machined_part_rev }}</td><td class="lbl">Child Part Nos: {{ assembly.child_part_nos }}</td></tr>
+    <tr><td class="lbl">Casting Part No/ Rev</td><td class="val">{{ assembly.casting_part_rev }}</td><td class="lbl"></td></tr>
+  </table>
+  <table class="sig" style="margin-top:2px">
+    <colgroup><col style="width:50%"><col style="width:50%"></colgroup>
+    <tr><td class="lbl">{{ assembly.prepared_by }}</td><td class="lbl right">{{ assembly.approved_by }}</td></tr>
+    <tr><td class="lbl">Prepared by</td><td class="lbl right">Approved by</td></tr>
+    <tr><td class="lbl small">This estimation is valid for 90 days only</td><td class="lbl small right">{{ assembly.form_ref }}</td></tr>
+  </table>
+</div>
+
+{# ============================= PAGE 5 — REMARKS ============================= #}
+<div class="page">
+  {{ banner(remarks.title) }}
+  <table>
+    <colgroup><col style="width:24%"><col style="width:26%"><col style="width:27%"><col style="width:23%"></colgroup>
+    <tr><td class="lbl">RFQ No.</td><td class="val">{{ header.rfq_no }}</td><td class="lbl">Date</td><td class="val">{{ header.date }}</td></tr>
+    <tr><td class="lbl">Customer</td><td class="val">{{ header.customer }}</td><td class="lbl">Annual volume (Nos)</td><td class="val">{{ header.annual_volume }}</td></tr>
+    <tr><td class="lbl">Final Part No.</td><td class="val">{{ header.final_part_no }}</td><td class="lbl">Annual volume including rejection  (Nos)</td><td class="val">{{ header.annual_volume_incl_rejection }}</td></tr>
+    <tr><td class="lbl">Final Part Rev No.</td><td class="val">{{ header.final_part_rev }}</td><td class="lbl">Machined part wt (kg)</td><td class="val">{{ header.machined_part_wt }}</td></tr>
+    <tr><td class="lbl">Description</td><td class="val">{{ header.description }}</td><td class="lbl">Casting Weight (Kg)</td><td class="val">{{ header.casting_weight }}</td></tr>
+    <tr><td class="lbl">Alloy</td><td class="val">{{ header.alloy }}</td><td class="lbl">LBH (mm)</td><td class="val">{{ header.lbh }}</td></tr>
+    <tr><td class="lbl">Alternate alloy proposed by SCL</td><td class="val">{{ header.alternate_alloy }}</td><td class="lbl"></td><td></td></tr>
+  </table>
+
+  {% macro remark_section(title, items) %}
+  <table style="margin-top:4px"><tr><td class="b" style="text-decoration:underline; border:none">{{ title }}</td></tr></table>
+  {% for it in items %}
+    {% if it.tone == 'band' %}
+      <div class="tan-band" style="border:0.75px solid #000; padding:3px 4px">{{ it.text }}</div>
+    {% elif it.tone == 'highlight' %}
+      <div class="hl-band" style="border:0.75px solid #000; padding:3px 4px; white-space:pre-wrap">{{ it.text }}</div>
+    {% elif it.tone == 'warn' %}
+      <div class="warn" style="border:0.75px solid #000; padding:3px 4px; background:#eef2e6">{{ it.text }}</div>
+    {% else %}
+      <div style="border:0.75px solid #000; padding:3px 4px; white-space:pre-wrap">{{ it.text }}</div>
+    {% endif %}
+  {% endfor %}
+  {% endmacro %}
+
+  {{ remark_section('Casting Remarks:', remarks.casting_remarks) }}
+  {{ remark_section('Machining Remarks:', remarks.machining_remarks) }}
+  <table style="margin-top:4px"><tr><td class="b" style="text-decoration:underline; border:none">Assembly Remarks:</td></tr></table>
+  <div style="border:0.75px solid #000; height:120px">
+    {% for it in remarks.assembly_remarks %}<div style="padding:3px 4px">{{ it.text }}</div>{% endfor %}
+  </div>
+</div>
+
+{# ============================= PAGE 6 — PACKING ============================= #}
+<div class="page">
+  {{ banner(packing.title) }}
+  <table>
+    <colgroup><col style="width:24%"><col style="width:26%"><col style="width:31%"><col style="width:19%"></colgroup>
+    <tr><td class="lbl">RFQ No.</td><td class="val">{{ header.rfq_no }}</td><td class="lbl">Date</td><td class="val">{{ header.date }}</td></tr>
+    <tr><td class="lbl">Customer</td><td class="val">{{ header.customer }}</td><td class="lbl">Annual volume (Nos)</td><td class="val">{{ header.annual_volume }}</td></tr>
+    <tr><td class="lbl">Final Part No.</td><td class="val">{{ header.final_part_no }}</td><td class="lbl">Annual volume incl. rejection (Nos)</td><td class="val">{{ header.annual_volume_incl_rejection }}</td></tr>
+    <tr><td class="lbl">Final Part Rev No.</td><td class="val">{{ header.final_part_rev }}</td><td class="lbl">Machined part wt (kg)</td><td class="val">{{ header.machined_part_wt }}</td></tr>
+    <tr><td class="lbl">Description</td><td class="val">{{ header.description }}</td><td class="lbl">LBH (mm)</td><td class="val">{{ header.lbh }}</td></tr>
+    <tr><td class="lbl">Alloy</td><td class="val">{{ header.alloy }}</td><td class="lbl"></td><td></td></tr>
+  </table>
+
+  <table><tr><td class="green ctr" style="font-size:10px">{{ packing.banner }}</td></tr></table>
+  <table><tr><td style="height:120px; padding:0; text-align:center">
+    {% if header.part_image %}<img class="part-img" src="{{ header.part_image }}" style="height:118px" />
+    {% else %}<div class="img-box" style="height:118px">[ Part Image ]</div>{% endif %}
+  </td></tr></table>
+
+  <table style="margin-top:2px">
+    <colgroup><col style="width:55%"><col style="width:15%"><col style="width:15%"><col style="width:15%"></colgroup>
+    <tr><td class="b ctr">Description</td><td class="b ctr">Length</td><td class="b ctr">Breadth</td><td class="b ctr">Height</td></tr>
+    <tr><td class="lbl">Part size</td><td class="ctr">{{ packing.part_size.l }}</td><td class="ctr">{{ packing.part_size.b }}</td><td class="ctr">{{ packing.part_size.h }}</td></tr>
+    <tr><td class="lbl">Packing box size</td><td class="ctr val b" style="color:#0a3d91">{{ packing.packing_box_size.l }}</td><td class="ctr val b" style="color:#0a3d91">{{ packing.packing_box_size.b }}</td><td class="ctr val b" style="color:#0a3d91">{{ packing.packing_box_size.h }}</td></tr>
+    <tr><td class="lbl">Allowances</td><td class="ctr">{{ packing.allowances.l }}</td><td class="ctr">{{ packing.allowances.b }}</td><td class="ctr">{{ packing.allowances.h }}</td></tr>
+    {% for a in packing.arrangements %}
+    <tr><td class="b lbl">Arrangement {{ a.idx }}</td><td class="ctr">{{ a.l }}</td><td class="ctr">{{ a.b }}</td><td class="ctr">{{ a.h }}</td></tr>
+    <tr><td class="lbl">No. of components</td><td class="b ctr" colspan="3">{{ a.components }}</td></tr>
+    {% endfor %}
+    <tr><td class="b ctr">No. of components per box</td><td class="b ctr" colspan="3" style="font-size:12px">{{ packing.per_box }}</td></tr>
+  </table>
+  <div class="b grey" style="border:0.75px solid #000; padding:3px 4px; margin-top:0">{{ packing.notes }}</div>
+</div>
+
+</body>
+</html>

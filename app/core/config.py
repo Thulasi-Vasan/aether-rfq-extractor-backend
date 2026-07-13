@@ -7,7 +7,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore", populate_by_name=True)
 
     data_dir: Path = Field(default=Path("data"), validation_alias="AETHER_DATA_DIR")
     reference_pdf_path: Path = Field(default=Path("samples/meridian-housing-gdc-reference.pdf"),validation_alias="AETHER_REFERENCE_PDF_PATH",)
@@ -48,6 +48,13 @@ class Settings(BaseSettings):
     enable_occ: bool = Field(
         default=True,
         validation_alias=AliasChoices("AETHER_ENABLE_OCC", "ENABLE_OCC"),
+    )
+    # Renders the RFQ Estimation report's "Part Image" from a STEP file via
+    # cadquery. Set to false on machines without cadquery installed — the
+    # report just falls back to its placeholder box instead of erroring.
+    enable_cad_part_image: bool = Field(
+        default=True,
+        validation_alias=AliasChoices("AETHER_ENABLE_CAD_PART_IMAGE", "ENABLE_CAD_PART_IMAGE"),
     )
     use_static_summary: bool = Field(
         default=False,

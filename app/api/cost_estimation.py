@@ -13,11 +13,11 @@ from app.services.cost_estimation.meridian import MeridianStructuredExtractionSe
 from app.services.cost_estimation.reasoning import BedrockReasoningService
 from app.services.storage import DocumentStore
 
-router = APIRouter()
+from fastapi import Depends
+from app.api.dependencies import get_current_user
 log = logging.getLogger(__name__)
 
 
-@router.get("/v1/documents/{document_id}/meridian", response_model=MeridianExtractionResponse)
 def get_meridian_extraction(
     document_id: str,
     include_raw: bool = Query(default=False),
@@ -36,7 +36,6 @@ def get_meridian_extraction(
     return response
 
 
-@router.get("/v1/documents/{document_id}/export-excel", response_class=StreamingResponse)
 def export_excel(
     document_id: str,
     store: DocumentStore = Depends(get_store),
@@ -66,7 +65,6 @@ def export_excel(
     )
 
 
-@router.get("/v1/documents/{document_id}/provenance", response_model=list[FieldProvenance])
 def get_provenance(
     document_id: str,
     store: DocumentStore = Depends(get_store),
@@ -84,7 +82,6 @@ def get_provenance(
     return records
 
 
-@router.post("/v1/documents/{document_id}/provenance/enrich", response_model=list[FieldProvenance])
 def enrich_provenance(
     document_id: str,
     store: DocumentStore = Depends(get_store),

@@ -6,7 +6,8 @@ from fastapi.exceptions import HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api import cost_estimation, documents, machining
+from app.routes import api_router
+
 from app.core.config import get_settings
 from app.models import ErrorResponse
 from app.services.errors import ExtractorError
@@ -19,6 +20,9 @@ logging.basicConfig(
 
 
 def create_app() -> FastAPI:
+    from app.core.database import Base, engine
+    Base.metadata.create_all(bind=engine)
+
     app = FastAPI(title="Aether RFQ Extractor Backend", version="0.1.0")
 
     settings = get_settings()
@@ -49,9 +53,7 @@ def create_app() -> FastAPI:
     def health() -> dict[str, str]:
         return {"status": "ok"}
 
-    app.include_router(documents.router)
-    app.include_router(cost_estimation.router)
-    app.include_router(machining.router)
+    app.include_router(api_router)
 
     return app
 

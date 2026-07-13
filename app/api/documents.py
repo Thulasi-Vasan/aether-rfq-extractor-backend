@@ -12,11 +12,11 @@ from app.models import DocumentSummary, ReferenceDocumentResponse, TablesRespons
 from app.services.documents.extractor import PdfExtractionService
 from app.services.storage import DocumentStore, document_id_from_sha256, sha256_file
 
-router = APIRouter()
+from fastapi import Depends
+from app.api.dependencies import get_current_user
 log = logging.getLogger(__name__)
 
 
-@router.post("/v1/documents", response_model=DocumentSummary)
 async def upload_document(
     file: UploadFile = File(...),
     force_reextract: bool = Query(default=False),
@@ -52,7 +52,6 @@ async def upload_document(
     )
 
 
-@router.get("/v1/documents/{document_id}", response_model=DocumentSummary)
 def get_document(document_id: str, store: DocumentStore = Depends(get_store)) -> DocumentSummary:
     log.info("Document summary request: document_id=%s", document_id)
     extraction = store.load_extraction(document_id)
@@ -73,7 +72,6 @@ def get_document(document_id: str, store: DocumentStore = Depends(get_store)) ->
     )
 
 
-@router.get("/v1/documents/{document_id}/tables", response_model=TablesResponse)
 def get_document_tables(
     document_id: str,
     page_number: int | None = Query(default=None, ge=1),
@@ -109,7 +107,6 @@ def get_document_tables(
     )
 
 
-@router.get("/v1/documents/{document_id}/pages/{page_number}/tables", response_model=TablesResponse)
 def get_page_tables(
     document_id: str,
     page_number: int,
@@ -128,7 +125,6 @@ def get_page_tables(
     )
 
 
-@router.get("/v1/reference-document", response_model=ReferenceDocumentResponse)
 def get_reference_document(
     settings: Settings = Depends(get_settings),
     store: DocumentStore = Depends(get_store),
@@ -155,7 +151,6 @@ def get_reference_document(
     )
 
 
-@router.post("/v1/reference-document/extract", response_model=DocumentSummary)
 async def extract_reference_document(
     force_reextract: bool = Query(default=False),
     extractor: PdfExtractionService = Depends(get_extractor),
@@ -183,7 +178,6 @@ async def extract_reference_document(
     )
 
 
-@router.get("/v1/documents/{document_id}/pdf")
 def get_document_pdf(
     document_id: str,
     store: DocumentStore = Depends(get_store),

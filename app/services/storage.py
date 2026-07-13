@@ -84,3 +84,24 @@ class DocumentStore:
         debug_dir = self.debug_path(document_id)
         debug_dir.mkdir(parents=True, exist_ok=True)
         (debug_dir / name).write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
+
+    def generated_rfq_link_path(self, payload_hash: str) -> Path:
+        """Association file linking a generated-RFQ payload to its cost estimation document.
+
+        Keyed by a hash of the RFQ payload (not the rendered PDF bytes, which embed a
+        render timestamp and so differ on every call even for identical input) so that
+        repeated approvals of the same RFQ resolve to the same cost document instead of
+        creating duplicates.
+        """
+        return self.settings.extractions_dir / f"generated_rfq_{payload_hash}.json"
+
+    def save_generated_rfq_link(self, payload_hash: str, record: dict) -> Path:
+        path = self.generated_rfq_link_path(payload_hash)
+        path.write_text(json.dumps(record, indent=2, default=str), encoding="utf-8")
+        return path
+
+    def load_generated_rfq_link(self, payload_hash: str) -> dict | None:
+        path = self.generated_rfq_link_path(payload_hash)
+        if not path.exists():
+            return None
+        return json.loads(path.read_text(encoding="utf-8"))
