@@ -26,11 +26,11 @@ log = logging.getLogger(__name__)
 
 
 def generate_estimation_pdf(payload: RfqEstimationRequest) -> StreamingResponse:
-    """Render the 7-page SCL-PED RFQ Estimation report from stage data.
+    """Render the 7-page neutral RFQ Estimation report from stage data.
 
     The request carries whatever the caller has (typically frontend stages 1-3);
-    every unset field falls back to the Meridian reference defaults, so even an
-    empty body yields a complete, faithful report.
+    every unset field falls back to neutral reference defaults, so even an
+    empty body yields a complete report.
     """
     overrides = payload.as_overrides()
     log.info("RFQ estimation PDF request: sections=%s", sorted(overrides.keys()))
